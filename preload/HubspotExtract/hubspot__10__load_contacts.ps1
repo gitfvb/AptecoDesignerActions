@@ -21,7 +21,7 @@ $debug = $true
 
 if ( $debug ) {
     $params = [hashtable]@{
-        scriptPath = "C:\Apteco\Build\Hubspot\preload\Hubspot Extract"
+        scriptPath = "C:\Apteco\Build\Hubspot\preload\HubspotExtract"
     }
 }
 
@@ -76,9 +76,10 @@ $settingsFilename = "settings.json"
 $lastSessionFilename = "lastsession.json"
 $processId = [guid]::NewGuid()
 $modulename = "hubspot_extract"
+$logfile = "$( $scriptPath )\hubspot_extract.log"
 
 # Load last session
-$lastSession = Get-Content -Path "$( $scriptPath )\$( $lastSessionFilename )" -Encoding UTF8 -Raw | ConvertFrom-Json
+#$lastSession = Get-Content -Path "$( $scriptPath )\$( $lastSessionFilename )" -Encoding UTF8 -Raw | ConvertFrom-Json
 
 # Load settings
 #$settings = Get-Content -Path "$( $scriptPath )\$( $settingsFilename )" -Encoding UTF8 -Raw | ConvertFrom-Json
@@ -95,7 +96,7 @@ if ( $settings.changeTLS ) {
 }
 
 # more settings
-$logfile = $settings.logfile
+#$logfile = $settings.logfile
 #$guid = ([guid]::NewGuid()).Guid # TODO [ ] use this guid for a specific identifier of this job in the logfiles
 
 # TODO [ ] load token from Designer environment variable
@@ -117,8 +118,9 @@ if ( $debug ) {
 ################################################
 
 # Load all PowerShell Code
-Get-ChildItem -Path ".\$( $functionsSubfolder )" | ForEach {
+Get-ChildItem -Path ".\$( $functionsSubfolder )" -Recurse -Include @("*.ps1") | ForEach {
     . $_.FullName
+    $_.FullName
 }
 
 # Load all exe and dll files in subfolder
@@ -141,7 +143,7 @@ If ( Check-Path -Path "$( $scriptPath )\$( $lastSessionFilename )" ) {
 }
 
 #$lastTimestamp = Get-Unixtime -timestamp ( (Get-Date).AddMonths(-1) ) -inMilliseconds
-$currentTimestamp = Get-Unixtime -inMilliseconds
+[uint64]$currentTimestamp = Get-Unixtime -inMilliseconds
 
 
 ################################################
@@ -396,7 +398,7 @@ Switch ( $extractMethod ) {
 
 $lastSession = @{
     lastTimestamp = $currentTimestamp
-    lastTimeStampHuman = Get-DateTimeFromUnixtime -unixtime $currentTimestamp -inMilliseconds -convertToLocalTimezone
+    lastTimeStampHuman = Get-Date ( Get-DateTimeFromUnixtime -unixtime $currentTimestamp -inMilliseconds -convertToLocalTimezone ) -Format "yyyyMMdd_HHmmss"
 }
 
 # create json object
@@ -443,3 +445,9 @@ if ($contacts.Count -gt 0) {
 # LOAD CSV INTO SQLITE
 #
 ################################################
+
+
+<#
+
+
+#>
