@@ -75,6 +75,7 @@ $libSubfolder = "lib"
 $settingsFilename = "settings.json"
 $lastSessionFilename = "lastsession.json"
 $processId = [guid]::NewGuid()
+$modulename = "hubspot_extract"
 
 # Load last session
 $lastSession = Get-Content -Path "$( $scriptPath )\$( $lastSessionFilename )" -Encoding UTF8 -Raw | ConvertFrom-Json
@@ -97,6 +98,12 @@ if ( $settings.changeTLS ) {
 $logfile = $settings.logfile
 #$guid = ([guid]::NewGuid()).Guid # TODO [ ] use this guid for a specific identifier of this job in the logfiles
 
+# TODO [ ] load token from Designer environment variable
+$hapikey = "&hapikey=$( $token )"
+$base = "https://api.hubapi.com/"
+$loadArchivedRecords = $true
+$pageLimitGet = 100 # Max amount of records to download with one API call
+
 # append a suffix, if in debug mode
 if ( $debug ) {
     $logfile = "$( $logfile ).debug"
@@ -118,25 +125,22 @@ Get-ChildItem -Path ".\$( $functionsSubfolder )" | ForEach {
 $libExecutables = Get-ChildItem -Path ".\$( $libSubfolder )" -Recurse -Include @("*.exe","*.dll") 
 
 
-
-
-
 ################################################
 #
-# MORE SETTINGS
+# MORE SETTINGS AFTER LOADING FUNCTIONS
 #
 ################################################
 
+# Load last session
+If ( Check-Path -Path "$( $scriptPath )\$( $lastSessionFilename )" ) {
+    $lastSession = Get-Content -Path "$( $scriptPath )\$( $lastSessionFilename )" -Encoding UTF8 -Raw | ConvertFrom-Json
+    $lastTimestamp = $lastSession.lastTimestamp
+    $extractMethod = "DELTA" # FULL|DELTA
+} else {
+    $extractMethod = "FULL" # FULL|DELTA
+}
 
-# TODO [ ] load token from Designer environment variable
-
-$token = "<hapikey>"
-$base = "https://api.hubapi.com/"
-$hapikey = "&hapikey=$( $token )"
-$extractMethod = "FULL" # FULL|DELTA
-$loadArchivedRecords = $true
-$pageLimitGet = 100 # Max amount of records to download with one API call
-$lastTimestamp = Get-Unixtime -timestamp ( (Get-Date).AddMonths(-1) ) -inMilliseconds
+#$lastTimestamp = Get-Unixtime -timestamp ( (Get-Date).AddMonths(-1) ) -inMilliseconds
 $currentTimestamp = Get-Unixtime -inMilliseconds
 
 
@@ -207,7 +211,7 @@ $url = "$( $base )$( $object )/$( $apiVersion )/contacts/properties?$( $hapikey 
 $properties = Invoke-RestMethod -Method Get -Uri $url
 
 # Find out different types of properties
-#$properties | select -Unique groupName
+$propertiesGroups = $properties | select -Unique groupName
 
 # Show properties
 #$properties | sort groupName | Out-GridView
@@ -263,14 +267,14 @@ Switch ( $extractMethod ) {
             $archived = "true"
             $url = "$( $base )$( $object )/$( $apiVersion )/objects/contacts?limit=$( $limit )&archived=$( $archived )&properties=$( $properties.name -join "," )$( $hapikey )"
 
-            $archivedContacts = @()
+            #$archivedContacts = @()
             Do {
     
                 # Get all contacts
                 $archivedContactsResult = Invoke-RestMethod -Method Get -Uri $url -Verbose
     
                 # Add contacts to array
-                $archivedContacts += $archivedContactsResult.results
+                $contacts += $archivedContactsResult.results
 
                 # Load next url
                 $url = "$( $archivedContactsResult.paging.next.link )$( $hapikey )"
@@ -392,7 +396,7 @@ Switch ( $extractMethod ) {
 
 $lastSession = @{
     lastTimestamp = $currentTimestamp
-    lastTimeStampHumanUTC = (Get-Date 01.01.1970).AddSeconds($currentTimestamp/1000)
+    lastTimeStampHuman = Get-DateTimeFromUnixtime -unixtime $currentTimestamp -inMilliseconds -convertToLocalTimezone
 }
 
 # create json object
@@ -413,7 +417,25 @@ $lastSessionJson | Set-Content -path "$( $scriptPath )\$( $lastSessionFilename )
 #
 ################################################
 
+# Create folder
+$exportDir = "$( $scriptPath )\extract\$( $processId )\"
+New-Item -Path $exportDir -ItemType Directory
 
+if ($contacts.Count -gt 0) {
+
+    # Export properties table
+    $properties | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $exportDir )properties.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+    # Export data
+    $contacts | Select id, createdAt, updatedAt, archived -ExpandProperty properties | Out-Null # Expand contacts first
+    $propertiesGroups | ForEach-Object {
+        $currentGroup = $_.groupName
+        $currentProperties = $properties | where { $_.groupName -eq $currentGroup } | Select name
+        $colsForExport = @("id", "createdAt", "updatedAt", "archived") + $currentProperties.name
+        $contacts.properties | select $colsForExport | Export-Csv -Path "$( $exportDir )contacts__$( $currentGroup ).csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+    }
+
+}
 
 
 ################################################
