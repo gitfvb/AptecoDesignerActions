@@ -121,7 +121,9 @@ $settings = @{
     filterForSqliteImport = @("*.csv";"*.txt";"*.tab")
     logfile = "$( $scriptPath )\hubspot_extract.log"
     backupSqlite = $true # $true|$false if you wish to create backups of the sqlite database
-
+    
+    createBuildNow = $true # $true|$false if you want to create an empty file for "build.now"
+    buildNowFile = "C:\Apteco\Build\Hubspot\now\build.now" # Path to the build now file
 
     # Settings for smtp mails
     mailSettings = @{
@@ -147,14 +149,6 @@ $exportDir = "$( $scriptPath )\extract\$( $processId )\"
 $sqliteDb = "C:\Apteco\Build\Hubspot\data\hubspot.sqlite" # TODO [ ] replace the first part of the path with a designer environment variable
 $filterForSqliteImport = @("*.csv";"*.txt";"*.tab")
 #>
-
-# Create general settings
-$keyfilename = $settings.aesFile
-$hapikey = "&hapikey=$( Get-SecureToPlaintext -String $settings.token )"
-
-# Create credentials for mails
-$stringSecure = ConvertTo-SecureString -String ( Get-SecureToPlaintext -String $settings.mailSecureString ) -AsPlainText -Force
-$smtpcred = New-Object PSCredential $settings.mailSettings.from,$stringSecure
 
 # Log
 $logfile = $settings.logfile
@@ -184,6 +178,23 @@ $libExecutables | ForEach {
     "... $( $_.FullName )"
 }
 
+
+################################################
+#
+# MORE SETTINGS AFTER LOADING FUNCTIONS
+#
+################################################
+
+
+# Create general settings
+$keyfilename = $settings.aesFile
+$hapikey = "&hapikey=$( Get-SecureToPlaintext -String $settings.token )"
+
+# Create credentials for mails
+$stringSecure = ConvertTo-SecureString -String ( Get-SecureToPlaintext -String $settings.mailSecureString ) -AsPlainText -Force
+$smtpcred = New-Object PSCredential $settings.mailSettings.from,$stringSecure
+
+exit 0
 
 ################################################
 #
@@ -617,4 +628,14 @@ $filesToImport | ForEach {
 }  
 
 
+################################################
+#
+# CREATE SUCCESS FILE
+#
+################################################
+
+if ( $settings.createBuildNow ) {
+    Write-Log -message "Creating file '$settings.buildNowFile'"
+    [datetime]::Now.ToString("yyyyMMddHHmmss") | Out-File -FilePath $settings.buildNowFile -Encoding utf8 -Force
+}
 
