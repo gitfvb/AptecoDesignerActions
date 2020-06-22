@@ -123,8 +123,30 @@ $settings = @{
         port = 587
     }
 
+    # details to load from cleverreach per receiver
+    cleverreachDetails = @{
+        events = $true
+        orders = $false
+        tags = $true
+    }
+    
 }
 
+
+# Create the binary value for loading the cleverreach details for each receiver
+$cleverreachDetailsBinaryValues = @{
+    events = 1
+    orders = 2
+    tags = 4
+}
+$cleverReachDetailsBinary = 0
+$cleverreachDetailsBinaryValues.Keys | ForEach {
+    if ( $settings.cleverreachDetails[$_] -eq $true ) {
+        $cleverReachDetailsBinary += $cleverreachDetailsBinaryValues[$_]
+    }
+}
+
+# Items to backup
 $itemsToBackup = @(
     "$( $settings.sqliteDb )"
 )
@@ -169,11 +191,16 @@ $libExecutables | ForEach {
 $keyfilename = $settings.aesFile
 $auth = "Bearer $( Get-SecureToPlaintext -String $settings.token )"
 $header = @{ "Authorization" = $auth }
+[uint64]$currentTimestamp = Get-Unixtime -inMilliseconds -timestamp $timestamp
+
 
 # Create credentials for mails
-#$stringSecure = ConvertTo-SecureString -String ( Get-SecureToPlaintext -String $settings.mailSecureString ) -AsPlainText -Force
-#$smtpcred = New-Object PSCredential $settings.mailSettings.from,$stringSecure
+$stringSecure = ConvertTo-SecureString -String ( Get-SecureToPlaintext -String $settings.mailSecureString ) -AsPlainText -Force
+$smtpcred = New-Object PSCredential $settings.mailSettings.from,$stringSecure
 
+# Exit for manually creating secure strings
+# exit 0
+#
 
 ################################################
 #
@@ -210,7 +237,7 @@ if ( $paramsExisting ) {
 
 $ping = Invoke-RestMethod -Method Get -Uri "$( $settings.base )debug/ping.json" -Headers $header -Verbose
 
-$validAUth = Invoke-RestMethod -Method Get -Uri "$( $settings.base )debug/validate.json" -Headers $header
+$validAUth = Invoke-RestMethod -Method Get -Uri "$( $settings.base )debug/validate.json" -Headers $header -Verbose
 
 
 # Exit if no limit is delivered
@@ -235,7 +262,6 @@ if ( $ping -and $validAuth ) {
 Write-Log -message "Downloading the blacklist"
 
 # write the black list
-"$( [datetime]::UtcNow.ToString("yyyyMMddHHmmss") )`tWriting blacklist" >> "..\log.txt"
 $blacklist = Invoke-RestMethod -Method Get -Uri "https://rest.cleverreach.com/v3/blacklist.json" -Headers $header
 
 Write-Log -message "Found $( $blacklist.Count ) entries"
@@ -280,7 +306,7 @@ Write-Log -message "Found $( $mailings.Count ) mailings"
 # Download all data and one call per group
 
 # write all single groups and additional attributes
-$detailLevel = 7 # Detail depth (bitwise combinable) (0: none, 1: events, 2: orders, 4: tags).
+$detailLevel = $cleverReachDetailsBinary # Detail depth (bitwise combinable) (0: none, 1: events, 2: orders, 4: tags).
 $attributes = Invoke-RestMethod -Method Get -Uri "$( $settings.base )attributes.json" -Headers $header -Verbose # load global attributes first
 $contacts = @()
 $groups | ForEach {
@@ -311,8 +337,6 @@ Write-Log -message "Done with downloading $( $contacts.count ) 'contacts' in tot
 
 #$contacts | Out-GridView
 
-exit 0
-
 ################################################
 #
 # FILTER ALL RECEIVERS
@@ -333,7 +357,7 @@ $filter = [ordered]@{
             #condition = "florian.von.bracht@apteco.de"
         }
     )
-    detail = 3 # Detail depth (bitwise combinable) (0: none, 1: events, 2: orders, 4: tags).
+    detail = $cleverReachDetailsBinary # Detail depth (bitwise combinable) (0: none, 1: events, 2: orders, 4: tags).
     pagesize = $settings.pageLimitGet
     page = 0
 }
@@ -363,72 +387,55 @@ do {
 #
 ################################################
 
+Write-Log -message "Exporting the data into CSV and creating a folder with the id $( $processId )"
 
-
-
+# Create folder
+New-Item -Path $settings.exportDir -ItemType Directory
 
 # The blacklist - only current values
-$blacklist
+$blacklist | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )blacklist.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
 
 # All groups - keep history
-$groups
+$groups | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )groups.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
 
 # All global and local attributes - only current values
-$attributes
+$attributes | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )attributes.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
 
 # Currently finished mailings - keep history
-$finishedMailings = $mailings.finished | select * -ExcludeProperty body_html, body_text
+$mailings.finished | select * -ExcludeProperty body_html, body_text, mailing_groups | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )mailings__finished.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
 
 # Ids of mailings and groups (could be multiple groups) - keep history
-$mailingsWithGroups = $finishedMailings | select id -ExpandProperty mailing_groups | Format-Array -idPropertyName "id" -arrPropertyName group_ids
+$mailings.finished | select id -ExpandProperty mailing_groups | Format-Array -idPropertyName "id" -arrPropertyName group_ids | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )mailings__groups.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
 
-# All local and global attributes for all receivers - only current values
-$localAttributes = $contacts | where { $_.attributes.psobject.properties.count -gt 0 } | select id, group_id -ExpandProperty attributes | Format-KeyValue -idPropertyName "id" -removeEmptyValues
-$globalAttributes = $contacts | select -Unique id, global_attributes | select id -ExpandProperty global_attributes | Format-KeyValue -idPropertyName "id" -removeEmptyValues
+# All contacts
+$contacts | select * -ExcludeProperty events, tags, orders, global_attributes,attributes | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )receivers.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+# All local attributes for all receivers - only current values
+$contacts | where { $_.attributes.psobject.properties.count -gt 0 } | select id, group_id -ExpandProperty attributes | Format-KeyValue -idPropertyName "id" -removeEmptyValues | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )groups__attributes__local.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+# All global attributes for all receivers - only current values
+$contacts | select -Unique id, global_attributes | select id -ExpandProperty global_attributes | Format-KeyValue -idPropertyName "id" -removeEmptyValues | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )groups__attributes__global.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
 
 # All events for all receivers (opens, clicks, bounces. logs etc.) - keep history
-$events = $contacts | where { $_.events.count -gt 0 } | select -Unique id, events | select id -ExpandProperty events
-#$mailingEvents = $events | where { $_.mailing_id -ne 0 }
-#$groupsEvents = $events | where { $_.groups_id -ne 0 }
-#$otherEvents =  $events | where { $_.mailing_id -eq 0 -and $_.groups_id -eq 0 }
+if ( $settings.cleverreachDetails['events'] ) {
+    $contacts | where { $_.events.count -gt 0 } | select -Unique id, events | select id -ExpandProperty events | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )receivers__events.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+    #$mailingEvents = $events | where { $_.mailing_id -ne 0 }
+    #$groupsEvents = $events | where { $_.groups_id -ne 0 }
+    #$otherEvents =  $events | where { $_.mailing_id -eq 0 -and $_.groups_id -eq 0 }
+}
 
 # All tags for all receivers - only current values
-$tags = $contacts | where { $_.tags.count -gt 0 }  | select -Unique id, tags | Format-Array -idPropertyName "id" -arrPropertyName "tags"
-
-# All orders for all receivers - only current values ; NOT IMPLEMENTED AND TESTED YET
-#$orders = $contacts | where { $_.orders.count -gt 0 }  | select -Unique id, orders | select id -ExpandProperty orders
-
-
-
-
-
-
-
-
-$objectPrefix = "contacts__"
-
-if ($contacts.Count -gt 0) {
-    
-    Write-Log -message "Exporting the data into CSV and creating a folder with the id $( $processId )"
-
-    # Create folder
-    New-Item -Path $settings.exportDir -ItemType Directory
-
-    # Export properties table
-    $properties | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )$( $objectPrefix )properties.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
-
-    # Export data
-    $contacts | Select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, id, createdAt, updatedAt, archived -ExpandProperty properties | Out-Null # Expand contacts first
-    $propertiesGroups | ForEach-Object {
-        $currentGroup = $_.groupName -replace "-","" # replace dashes in group names if present, because sqlite does not like them as table names
-        $currentProperties = $properties | where { $_.groupName -eq $currentGroup } | Select name
-        $colsForExport = @("ExtractTimestamp","id", "createdAt", "updatedAt", "archived") + $currentProperties.name
-        $contacts.properties | select $colsForExport | Export-Csv -Path "$( $settings.exportDir )$( $objectPrefix )$( $currentGroup ).csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
-    }
-
-    Write-Log -message "Exported $( (Get-ChildItem -Path $settings.exportDir).Count ) files with the id $( $processId )"
-
+if ( $settings.cleverreachDetails['tags'] ) {
+    $contacts | where { $_.tags.count -gt 0 }  | select -Unique id, tags | Format-Array -idPropertyName "id" -arrPropertyName "tags" | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )receivers__tags.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
 }
+
+# All orders for all receivers - only current values
+# TODO [ ] NOT IMPLEMENTED AND TESTED YET
+if ( $settings.cleverreachDetails['orders'] ) {
+    $contacts | where { $_.orders.count -gt 0 }  | select -Unique id, orders | select id -ExpandProperty orders | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )receivers__orders.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+}
+
+Write-Log -message "Exported $( (Get-ChildItem -Path $settings.exportDir).Count ) files with the id $( $processId )"
 
 
 ################################################
