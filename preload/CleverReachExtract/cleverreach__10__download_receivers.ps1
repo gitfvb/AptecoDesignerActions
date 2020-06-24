@@ -115,6 +115,15 @@ $settings = @{
     createBuildNow = $false # $true|$false if you want to create an empty file for "build.now"
     #buildNowFile = "C:\Apteco\Build\Hubspot\now\build.now" # Path to the build now file
 
+    # as the receivers entry offers the last 250 event entries, including opens, clicks, bounces and sents
+    # we can create a 'no more reports response' file when this script is executed on a regular base.
+    # So the reports response is only needed for the first run to load all opens, clicks, ..., but without
+    # a specific timestamp or multiple "opens" or "clicks". We only know there IF the receiver has opened
+    # or clicked a specific link, not how often or when the receiver did this. But through the events we know
+    # exactly that piece of information, but it only holds the last 250 entries.
+    createNoMoreResponse = $true # 'no more reports response' file
+    createNoMoreResponseFile = "$( $scriptPath )\no_more_reports_response.now"
+
     # Settings for smtp mails
     mailSettings = @{
         smtpServer = "smtp.ionos.de"
@@ -131,7 +140,6 @@ $settings = @{
     }
     
 }
-
 
 # Create the binary value for loading the cleverreach details for each receiver
 $cleverreachDetailsBinaryValues = @{
@@ -193,7 +201,6 @@ $auth = "Bearer $( Get-SecureToPlaintext -String $settings.token )"
 $header = @{ "Authorization" = $auth }
 [uint64]$currentTimestamp = Get-Unixtime -inMilliseconds -timestamp $timestamp
 
-
 # Create credentials for mails
 $stringSecure = ConvertTo-SecureString -String ( Get-SecureToPlaintext -String $settings.mailSecureString ) -AsPlainText -Force
 $smtpcred = New-Object PSCredential $settings.mailSettings.from,$stringSecure
@@ -201,6 +208,7 @@ $smtpcred = New-Object PSCredential $settings.mailSettings.from,$stringSecure
 # Exit for manually creating secure strings
 # exit 0
 #
+
 
 ################################################
 #
@@ -228,6 +236,36 @@ if ( $paramsExisting ) {
     }
 }
 
+
+################################################
+#
+# MORE SETTINGS AFTER LOADING FUNCTIONS
+#
+################################################
+<#
+# Load last session
+If ( Check-Path -Path "$( $scriptPath )\$( $lastSessionFilename )" ) {
+    $lastSession = Get-Content -Path "$( $scriptPath )\$( $lastSessionFilename )" -Encoding UTF8 -Raw | ConvertFrom-Json
+    $lastTimestamp = $lastSession.lastTimestamp
+    $extractMethod = "DELTA" # FULL|DELTA
+
+    Write-Log -message "Last timestamp: $( $lastTimestamp )"
+    Write-Log -message "Pretty timestamp: $( Get-Date ( Get-DateTimeFromUnixtime -unixtime $lastTimestamp -inMilliseconds -convertToLocalTimezone ) -Format "yyyyMMdd_HHmmss" )"
+
+} else {
+
+    $extractMethod = "FULL" # FULL|DELTA
+
+}
+
+Write-Log -message "Chosen extract method: $( $extractMethod )"
+#>
+#$lastTimestamp = Get-Unixtime -timestamp ( (Get-Date).AddMonths(-1) ) -inMilliseconds
+[uint64]$currentTimestamp = Get-Unixtime -inMilliseconds -timestamp $timestamp
+$currentTimestampDateTime = Get-DateTimeFromUnixtime -unixtime $currentTimestamp -inMilliseconds -convertToLocalTimezone
+
+
+Write-Log -message "Current timestamp: $( $currentTimestamp )"
 
 ################################################
 #
@@ -262,9 +300,23 @@ if ( $ping -and $validAuth ) {
 Write-Log -message "Downloading the blacklist"
 
 # write the black list
-$blacklist = Invoke-RestMethod -Method Get -Uri "https://rest.cleverreach.com/v3/blacklist.json" -Headers $header
+$blacklist = Invoke-RestMethod -Method Get -Uri "$( $settings.base)blacklist.json" -Headers $header
 
 Write-Log -message "Found $( $blacklist.Count ) entries"
+
+
+################################################
+#
+# DOWNLOAD BOUNCES
+#
+################################################
+
+Write-Log -message "Downloading the bounces"
+
+# write the black list
+$bounced = Invoke-RestMethod -Method Get -Uri "$( $settings.base)receivers/bounced.json" -Headers $header
+
+Write-Log -message "Found $( $bounced.Count ) entries"
 
 
 ################################################
@@ -335,6 +387,7 @@ $groups | ForEach {
 
 Write-Log -message "Done with downloading $( $contacts.count ) 'contacts' in total"
 
+
 #$contacts | Out-GridView
 
 ################################################
@@ -342,7 +395,6 @@ Write-Log -message "Done with downloading $( $contacts.count ) 'contacts' in tot
 # FILTER ALL RECEIVERS
 #
 ################################################
-
 
 <#
 # Download all receivers all in once, but contains some problems -> no local attributes and no tags yet
@@ -383,6 +435,134 @@ do {
 
 ################################################
 #
+# DOWNLOAD REPORTS
+#
+################################################
+
+
+
+# Download all reports first
+
+$reportsPagesize = 100
+$reports = @()
+
+$page = 0
+do {
+
+    $url = "$( $settings.base )reports.json?pagesize=$( $reportsPagesize )&page=$( $page )"
+    $result = Invoke-RestMethod -Method Get -Uri $url -Headers $header -Verbose
+
+    $reports += $result
+        
+    Write-Log -message "Loaded $( $reports.count ) 'reports' in total"
+
+    $page += 1
+
+} while ( $result.Count -eq $reportsPagesize )
+    
+
+
+################################################
+#
+# DOWNLOAD ALL REPORTS RECEIVERS
+#
+################################################
+
+<#
+
+IMPORTANT HINT
+
+The events attached to a receiver are only the last 250 entries... this is the reason why we need for every state, every mailing and every link
+
+#>
+$noMoreReportsResponse = Check-Path -Path $settings.createNoMoreResponseFile
+if ( $noMoreReportsResponse ) {
+    Write-Log -message "No need to load reports response as the file '$( $settings.createNoMoreResponseFile )' is existing. Only loading links"
+} 
+
+
+
+
+
+$responseTypes = @{
+    sent = $true
+    opened = $true
+    clicked = $true
+    notopened = $false
+    notclicked = $false
+    bounced = $true
+    unsubscribed = $true
+}
+
+#$from = Get-Unixtime $currentTimestampDateTime.AddDays(-30)
+#$to = Get-Unixtime $currentTimestampDateTime
+
+#$allLinks = @()
+$responses = @()
+$responseTypes.Keys | ForEach {
+
+    if ( $responseTypes[$_] ) {
+
+        $responseType = $_
+    
+        $reports | ForEach {
+
+            $reportId = $_.id
+
+            $iLink = 0
+            if ( $responseType -eq "clicked" ) {
+                # $links = Invoke-RestMethod -Method Get -Uri "$( $settings.base)mailings.json/$reportId/links" -Headers $header
+                $links = ( $reports | where { $_.id -eq $reportId } ).links
+                #$allLinks += $links
+            }
+            
+            if ( $noMoreReportsResponse -ne $true ) {
+
+                Write-Log -message "Downloading report id '$( $reportId )' and response type '$( $responseType )'"
+
+                # attach "linkid=$( $linkid )" as url and another loop which is "1" at default
+                Do {
+                
+                    if ( $responseType -eq "clicked" ) {
+                        $linkId = $links[$iLink].id
+                        $attachLink = "&linkid=$( $linkId )"
+                        $iLink += 1
+                    } else {
+                        $linkId = ""
+                        $attachLink = ""
+                    }
+
+                    $page = 0
+                    Do {
+
+                        $url = "$( $settings.base )reports.json/$( $reportId )/receivers/$( $responseType )?pagesize=$( $settings.pageLimitGet )&page=$( $page )&detail=0$( $attachLink )" # &from=$( $from )&to=$( $to )
+                        $result = Invoke-RestMethod -Method Get -Uri $url -Headers $header -Verbose
+
+                        $responses += $result | Select @{name="state";expression={ $responseType }},@{name="report";expression={ $reportId }},@{name="linkid";expression={ $linkId }}, id #*
+        
+                        Write-Log -message "Loaded $( $result.count ) 'responses' in total"
+
+                        $page += 1
+
+                    } while ( $result.Count -eq $settings.pageLimitGet )
+            
+                } while ( $iLink -lt ( $links.count ) -and $responseType -eq "clicked" )
+
+
+            }
+        }
+    }
+}
+
+Write-Log -message "Done with downloading $( $responses.count ) 'reports responses' in total"
+
+
+
+
+
+
+################################################
+#
 # EXPORT DATA INTO CSV
 #
 ################################################
@@ -395,6 +575,32 @@ New-Item -Path $settings.exportDir -ItemType Directory
 # The blacklist - only current values
 $blacklist | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )blacklist.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
 
+# The bounced - only current values
+$bounced | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )bounced.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+# All reports - keep history
+$reports | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )reports.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+# All reports stats - keep history
+$reports | select @{name="ReportId";expression={ $_.id }} -expand stats | select ReportId -expand basic | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )reports__stats.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+# All reports links - keep history
+#$allLinks | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, id, @{name="stats";expression={ $_.stats.basic  }} | Export-Csv -Path "$( $settings.exportDir )links.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+$reports | select @{name="ReportId";expression={ $_.id }} -expand links | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )reports__links.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+# All reports groups - keep history
+$reports | select @{name="ReportId";expression={ $_.id }} -expand groups | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )reports__groups.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+# All reports tags
+# TODO [ ] NOT TESTED AND IMPLEMENTED YET
+
+if ( $noMoreReportsResponse -ne $true ) {
+
+    # All reports responses - keep history
+    $responses | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )reports__responses.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+}
+
 # All groups - keep history
 $groups | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )groups.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
 
@@ -402,9 +608,11 @@ $groups | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * 
 $attributes | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )attributes.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
 
 # Currently finished mailings - keep history
+# TODO [ ] maybe not necessary as this is offers less records than the reports
 $mailings.finished | select * -ExcludeProperty body_html, body_text, mailing_groups | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )mailings__finished.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
 
 # Ids of mailings and groups (could be multiple groups) - keep history
+# TODO [ ] maybe not necessary as this is offers less records than the reports
 $mailings.finished | select id -ExpandProperty mailing_groups | Format-Array -idPropertyName "id" -arrPropertyName group_ids | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )mailings__groups.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
 
 # All contacts
@@ -573,12 +781,28 @@ $filesToImport | ForEach {
 
 ################################################
 #
-# CREATE SUCCESS FILE
+# CREATE SUCCESS FILES
 #
 ################################################
 
 if ( $settings.createBuildNow ) {
-    Write-Log -message "Creating file '$settings.buildNowFile'"
+    Write-Log -message "Creating file '$( $settings.buildNowFile )'"
     [datetime]::Now.ToString("yyyyMMddHHmmss") | Out-File -FilePath $settings.buildNowFile -Encoding utf8 -Force
 }
 
+if ( $settings.createNoMoreResponse -and $noMoreReportsResponse -ne $true) {
+    Write-Log -message  "Creating 'no more reports response' file '$( $settings.createNoMoreResponseFile )'"
+    [datetime]::Now.ToString("yyyyMMddHHmmss") | Out-File -FilePath $settings.createNoMoreResponseFile -Encoding utf8 -Force
+}
+
+
+################################################
+#
+# SEND EMAIL
+#
+################################################
+
+
+$password = ConvertTo-SecureString 'xxx' -AsPlainText -Force
+$credential = New-Object System.Management.Automation.PSCredential ('xxx@xxx.de', $password) 
+Send-MailMessage -SmtpServer "xxx" -From "xxx" -To "xxx" -Subject "[CLEVERREACH] Data was extracted from CleverReach and is ready to import" -Body "xxx" -Port 587 -UseSsl -Credential $credential
