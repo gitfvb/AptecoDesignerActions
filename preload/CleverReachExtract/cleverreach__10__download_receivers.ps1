@@ -98,22 +98,22 @@ $settings = @{
     # Get-PlaintextToSecure -String "token" -keyFile "$( $scriptPath )\aes.key"
     # And get it plaintext back by
     # Get-SecureToPlaintext -String $settings.token 
-    token = "76492d1116743f0423413b16050a5345MgB8AHgAdwA2AEUAVwBIAHMAVwBKAFUAbAB1AEkAUwBVADgARAB3AFEAVAAxAFEAPQA9AHwAOQBmADQANQA4AGUANQBlAGUAZQBmAGEAMgA5ADAAYwAyADgAYQAwAGUAYQAyADYANABkADgAOABiADMAMgA1ADkANQA1AGIANwA2AGUAOQBjADcANgA0AGYAOQAzAGYANgAzADAANgA0ADUAMQA2ADIAYwBhAGEAYwBhAGYAMQA1ADYAMQA1ADEAZAA2ADMANABkAGQAZQBkADAANgBiAGEANQA1ADAAZABhAGIAYQA4ADMAZgA0ADMAMwBiADEAZABjAGMANABiAGUAZAAzADQAYgA3ADMAMQA4AGEAZQBkADAAYgBlAGQANgBkADMAYgA2ADAANwA2ADEAMQA4AGMANwAyADMAOQA4ADgAYwA2ADIAMQAwAGUAZgBhADQAMwAwADUAOABlAGYAMABiADQAYgA4ADAAYwAwAGQANQBlADIAMwA5AGIAMgBkADIANwBjADEAZQBhADEAYgA0AGEANABiAGQAZgBiAGYAOQAyAGQAZAA0AGUAOQA1AGUAMQBkADgANABiAGQAMgAxADMAYgAxADQANwAxAGYAOQBhADgAYwAzAGQAZQBmAGIAYgA3ADEAYwBkADAAYwBkADcAMABiADAAMAA3AGQANABiAGQAYQAzADkAYgAyADcAOQBhADYAYQA4AGMAZgA5ADkAZAA2ADkANQBiADUAOQA0ADIAOAA2AGEAYgAyAGYANQBmADcANQBjADMAZAA3ADEAZAAwADUAZQAyADYAMAA1AGEAMwBjADAAZQBlADQAYQA4AGQAZQA4ADUAOQBjADgAOQBiADgAOQA0ADMAOAAyAGIAZQAwAGMAOABhADYAMQAyAGMANgAyADQAZgA5ADUAMAA5AGYAYQAxADMANgBmADUAMQBkADEAMwAzADIAOQBhADcANAA2AGYAYgA5ADEAMAA4ADMAMgA5ADgAYQAwADMAYQA3ADMANwBmADYANgA2ADEAMQAwADcANAA0AGUAYQA5ADIANgAwADcAYgBhADQANwBmAGEAOQBlADMAMgBkAGMAYwBkADQAYgBhADEAOAA5ADkAOAA4ADMAZAAzAGEAMwBiAGQANAA4AGMAMQAzAGEAZQBiADYANgA3ADYAYwA2ADAAOQAyADUAYQBjADMANwBhAGUAZgBjAGMAOAA2ADEAYwAyADkAMQBhAGQANAA5AGUAOQBkADUANAAzADQANgAzADEANAAyADIAMwAwADYANwA5AGQAOAA3ADYAYgAyAGEAOAA1AGQAMABlAGYAZgA3ADkANgBiADQANAA3ADQAZQA1ADEAZQBhADYAZQAwADIAYgA3ADYAYwA0ADQAOABiADkANAA1AGIAYgBkAGIAYgAxAGUANABhADYAMgAxADUAMQAzAGYAMgBjAGQAZgBjAGQAMQBjAGYAOQBkAGUAOQA1AGEANQA2ADUAMwBhADkAMQA3ADUAOAA5ADEAOAAyAGUAMgA2ADQAYQA1AGYAYgBlAGIANAA3AGUANgBmAGIAMgAxADgAYwBkADIAMAAwAGYAZAAzADUAMABiADcAOQA2ADYAYgBmADcANgA4AGUAYQBkAGEAMgA1AGIAYwBhAGYAZgA0ADgAMQA1ADcAYgAxADgAYgA4AGQAOAAyADgANAAzADYANQAxAGEAOABlAGMAZQBmAGIANAAxADUAYwBmADQAMQAxADkAOQBjADgAMABhADIAYQA5AGEAMwA5ADgAYwBkADkAYgAxADAAYQA2ADMAOQAwADIAMABkADgAMQAxADIANwAyAGYAYwBiADEAYwA4ADYAMABhADcAOQBlAGMAZABkADAANQA4ADYAMwAwAGYANwBhADgAOQA3AGUAMgAxADgAYwBjADkANgBjAGIAZQBjAGQAMAA4AGIAYgA1ADgAOABiADIAOQBmAGEAMgAyAGYAZQA1ADYAMwBiAGIAYgBmAGUAMgBiADEAZAA2ADMAYgAyADkAMQA3AGMANAA1ADMANAAzAGUAYgAyADkAMwBhADMAMQAzAGYAYQBiAGIAYwA0ADcAYQA3ADYAYQAyADkAZgBkADIAMwBlADgAZgAyADkAOQA0AGQANAA0ADIANwAzADEAOAAyADkAZQA0ADkAZgA4ADQAMgA3AGEAYwAxADEANAA2ADMAMgA3ADAAYQAyADkANAAzADEAMQA0AGYAMAA0ADcAYwBlADMAOQBhADgAMgA1ADcAYQA4ADYANAAwAGIAYQA3AGMAYwA2ADkAMgA5ADUAMgBhADYAZgAzAGEAMwAwADgAMQA0ADgAMgBiAGQAYgA2AGEAZgBiAGQAOABiAGIAZABmADgAZQA1AGIAYwAwADYAMgAxAGEANABjADkAZAAzADIAYgBkADYAMwA1ADgAMgA5AGEAYQBiADkANAA1AGUAYgAxAGIAYQBjADEAOAA5AGEAYwBjADIAYQA5AGEAMAA3ADQAYwA2AGUAOAA4ADAAOQAwADAAYwAyADkAMAAxAGEAMgA1AGEANABmAGEAYwAzADkAOABmADEAOQAzADgAYgA5ADQAOAA2AGQAZgA1ADAAZgBhADAAZgBjADgAYgAzAGEANQAwADEAZgBjADEAZQAwADYAOQAzADkAOAA5ADIANQAyAGIANQAzAGMAYwA4ADEAYgA4ADUAMAA1AGYAZQAxADkAZQBhADgAMgA0ADkAYQAwAGEAOQBmADMAMwBjADcAOQA5AGUAZABjAGUAMQAzADEAMABiADIANwA4ADMANwAwADMANQA4ADMAYgBlADgANgA2ADUANwAyADYAZgA4AGYAOAAwAGQAZAA1ADgAYwBjADAAZAAwADkAZABkAGIAZgBlAGEAMgAwAGMAZAA2ADQAMwA0ADYAZgBkADgAYwBjAGMAYgBiADAAMQAzADYAMABiADkAZQBiADUAYQBjAGEANAA4AGUAOAAxADUAMABlAGYANQAwADIAYgAxAGQAMAAxAGQAZABkADkAOQA5AGQAMgA0AGQAZQAyAGMAOQA4ADMANQBmADUANgA3ADQAMgAyADEAZABkADEAOABjADkAZgAzADkANgBhADIAYwBmADcAMgAxADcAMQA4AGYAYgBjAGYANQBmADUAMQA0AGYAMQAyADEAYwAzADMAZQA3ADEAYwA2AGUAOQAxADgANwA4ADkAZgBkAGUAMAA1ADUAZABmADcANgBiADUANgA1ADEANAAxADUAYwBlADkAMgA4AGYANwA0AGMANwAxADcAOQBiADAAZQBjAGQAMwAzAGUAOQBiADcAZgBhAGEAOQBmADkAZQA1AGYAOAA2AGEANgBlADIAOQA2ADkAZQA3ADAAOAA1AGYAYQBhADYANQBjADQAZQA1ADcAMgA2AGYANQBjADcAOABlAGYAZAAxAGUAMAA4AGMANwAwAGUAMwA3AGUANAAxADEAMABmADkAMQBlAGIAYwBjAGIAYwBhAGEANgA0AGQANwBkAGQAMwAzADIANwBlADIAZQBlAGEAMABhAGMAYQBmAGUAZgA0AGIANwA5ADcAZgBlADEAZABjADEAOQBhAGMAYgA1ADIANQAyADYAYQAwAGYAYwAxAGMAOQAxADEAMwAwADcANgA0AGQAOABiADUANgA2AGEANAA2ADQAMwA2ADUAZAA2AGUAZgA0ADgANABkADkANQAxADIANwBkADcAMgBkAGUAMgA1AGUAYQAxADQAZQAwADIAYgBkAGYANQBhAGIANABjADAAOAA5ADUAZgBmAGMANgA1ADQANAA1ADcAZQAxAGYANQBlAGYAMwAwADcAOABmADcANgAwAGQAMAA3AGMAMQBhADYAMQBmADMANgAwADYAMAA4ADEAMgAyADQAMAA3ADEANQA4ADgANgBjAGQANwBhADAAMQA2ADQANgAwADQAOQBiADEANwA1ADAAZAA0ADkAMwBmADcANQA3ADAAYgBjAGIANgAxADUAMQAwAGYAOQA2AGUAMQAwADIANAAyADAAMgBiAGYANgAwADAANgAzAGUAZgAxADAAYgBiADEAOQBlAGMAOAA2ADcAMAAyADIAYwA0AGUAMAA4ADMAMAAyAGUAZgAyAGEANwAxAGMAOQA2ADQANwA2ADEAOQBkAGMAMwBiADYAOQA1ADkAYgA4AGUANABjAGEAMgBjADQAZABjAGQAOAA4ADEAYgBmADkAZQA0AGYAZQAwAGIANwA5ADkANgBiAGIAYwBhAGMANAA3ADEAZAAwADQANgAzADkANAA4ADEAYgBjADUAYQA4ADYANgAzADMANQA3AGUANAAxAGYAOAAwAGQAZQBmADkAOQBlAGQANQBiAGYAOABlADgAMgBmAGYAYQA3ADMAYgBkADEAYwBhAGMAYgBkAGIAYgA3ADEAZQAwADUAMQA4ADkAMgA5ADUAYQBlADMANwA2AGQAYQBkADIAYQBiADMANgAwAGUAYQAwADYAZQA5AGMAYgAxADQANwA3ADQAZQAwADgAYQAyADEAMwA2ADUAOABjADkAYgAyAGMAOQA2AGQANQA1ADQAMQAwAGEAMQBmADQAYgA1AGEAMgA5AGQAMwA2ADcAMQAzADIAYgBhAGEAOAA0ADcAMwAwADgANwAzAGQAOABlADIAYgAyADMAZABmAGEAZAAxADYAMQBiADYAYQAyADUANABhADcAOQAzADkAMwAwAGQAZgAxADYAYQA3ADgAYgAxADYANAA3ADgANQA4AGYANABiAGEAYgA1AGIAMgAzAGMAMAA5ADAAZQA4ADEAOABmADMAMAA1AGIAMAA0ADIAMwAxAGUAOABlADQAMQBmAGEAZQAwADAAMgAwAGUAZQBjAGIAMgAwAGEAYQA3ADkAOAA2AGEANAAzADkAMQAxAGMAOQA3ADQANgA4AGQAZgA2AGMAZgA1ADEAZQAzADcANwAxADMAZgAzAGEANwAxAGUAZABiAGYAYwA5AGYAOQA2ADMAOQA2ADYAZAA5AGEAZABlADMAZQBlADEAOABjADcANABlAGUAMAAzADAAYQAwADYAZQBlADcAZABmADAAZQBhADIANQA5ADgANgA4ADcAYwA5ADEAYQA0ADcAYwBlADEANAA1AGMAYQA2AGMAZAA5AGYANgA4ADEAZABiAGEAZAA0ADAAZAA1ADYAMwBlAGEANgBjADcAMgBiAGQAMQA0AGYAYQBjAGQAYwA0ADkANgBjAA=="
+    token = "<tokenSecureString>"
 
-    mailSecureString = "76492d1116743f0423413b16050a5345MgB8ADQARQByAEgANABpAEcAYgBEAHgAQQBDAGYAZgBYAHQATgB5AHUAbgBDAEEAPQA9AHwAYwAxADYANwA0ADAAYQAyADUAZABmADQAMwA4AGUAZQA2ADIAOAA0ADcAZABmADEAYQBlADIAZABhADgAYgA0ADcANgA0ADAAZAA2ADEANwA0ADYANgBmADEAMABiADAAMwA1ADYAMwAzADYAMgA5AGMAYgAwADAAOQA2AGQAZABiADQAMgBkAGMAZgA0ADAAMQBmADUANQAwAGEAMwBhADEAMQA4ADMAMAAwADEAOQBiADcANAAxADIAMgAwADkA"
+    mailSecureString = "<mailSecureString>"
 
     base = "https://rest.cleverreach.com/v3/"
     #loadArchivedRecords = $true
     pageLimitGet = 5000 # Max amount of records to download with one API call
     exportDir = "$( $scriptPath )\extract\$( Get-Date $timestamp -Format "yyyyMMddHHmmss" )_$( $processId )\"
     backupDir = "$( $scriptPath )\backup"
-    sqliteDb = "C:\Apteco\Build\Hubspot\data\cleverreach.sqlite" # TODO [ ] replace the first part of the path with a designer environment variable
+    sqliteDb = "D:\Apteco\Build\CleverReach\data\cleverreach.sqlite" # TODO [ ] replace the first part of the path with a designer environment variable
     filterForSqliteImport = @("*.csv";"*.txt";"*.tab")
     logfile = "$( $scriptPath )\cleverreach_extract.log"
     backupSqlite = $true # $true|$false if you wish to create backups of the sqlite database
     
     createBuildNow = $false # $true|$false if you want to create an empty file for "build.now"
-    #buildNowFile = "C:\Apteco\Build\Hubspot\now\build.now" # Path to the build now file
+    #buildNowFile = "D:\Apteco\Build\Hubspot\now\build.now" # Path to the build now file
 
     # as the receivers entry offers the last 250 event entries, including opens, clicks, bounces and sents
     # we can create a 'no more reports response' file when this script is executed on a regular base.
@@ -165,6 +165,7 @@ $logfile = $settings.logfile
 # append a suffix, if in debug mode
 if ( $debug ) {
     $logfile = "$( $logfile ).debug"
+    $settings.sqliteDb = "$( $settings.sqliteDb ).debug"
 }
 
 
@@ -204,7 +205,6 @@ $header = @{ "Authorization" = $auth }
 # Create credentials for mails
 $stringSecure = ConvertTo-SecureString -String ( Get-SecureToPlaintext -String $settings.mailSecureString ) -AsPlainText -Force
 $smtpcred = New-Object PSCredential $settings.mailSettings.from,$stringSecure
-
 # Exit for manually creating secure strings
 # exit 0
 #
@@ -289,6 +289,17 @@ if ( $ping -and $validAuth ) {
     throw [System.IO.InvalidDataException] "No connection and/or valid authentication available"
     
 }
+
+
+
+################################################
+#
+# DEBUG AND ACCOUNT INFORMATION
+#
+################################################
+
+$ttl = Invoke-RestMethod -Method Get -Uri "$( $settings.base )debug/ttl.json" -Headers $header -Verbose
+$whoAmI = Invoke-RestMethod -Method Get -Uri "$( $settings.base )debug/whoami.json" -Headers $header -Verbose
 
 
 ################################################
@@ -386,7 +397,6 @@ $groups | ForEach {
 }
 
 Write-Log -message "Done with downloading $( $contacts.count ) 'contacts' in total"
-
 
 #$contacts | Out-GridView
 
@@ -497,7 +507,7 @@ $responseTypes = @{
 #$from = Get-Unixtime $currentTimestampDateTime.AddDays(-30)
 #$to = Get-Unixtime $currentTimestampDateTime
 
-#$allLinks = @()
+$allLinks = @()
 $responses = @()
 $responseTypes.Keys | ForEach {
 
@@ -511,9 +521,8 @@ $responseTypes.Keys | ForEach {
 
             $iLink = 0
             if ( $responseType -eq "clicked" ) {
-                # $links = Invoke-RestMethod -Method Get -Uri "$( $settings.base)mailings.json/$reportId/links" -Headers $header
-                $links = ( $reports | where { $_.id -eq $reportId } ).links
-                #$allLinks += $links
+                $links = Invoke-RestMethod -Method Get -Uri "$( $settings.base)mailings.json/$( $reportId )/links" -Headers $header
+                $allLinks += $links
             }
             
             if ( $noMoreReportsResponse -ne $true ) {
@@ -557,10 +566,6 @@ $responseTypes.Keys | ForEach {
 Write-Log -message "Done with downloading $( $responses.count ) 'reports responses' in total"
 
 
-
-
-
-
 ################################################
 #
 # EXPORT DATA INTO CSV
@@ -571,6 +576,10 @@ Write-Log -message "Exporting the data into CSV and creating a folder with the i
 
 # Create folder
 New-Item -Path $settings.exportDir -ItemType Directory
+
+# Debug and account information
+$ttl| select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )ttl.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+$whoAmI | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )account.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
 
 # The blacklist - only current values
 $blacklist | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )blacklist.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
@@ -619,10 +628,16 @@ $mailings.finished | select id -ExpandProperty mailing_groups | Format-Array -id
 $contacts | select * -ExcludeProperty events, tags, orders, global_attributes,attributes | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )receivers.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
 
 # All local attributes for all receivers - only current values
-$contacts | where { $_.attributes.psobject.properties.count -gt 0 } | select id, group_id -ExpandProperty attributes | Format-KeyValue -idPropertyName "id" -removeEmptyValues | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )groups__attributes__local.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+#$contacts | where { $_.attributes.psobject.properties.count -gt 0 } | select id, group_id -ExpandProperty attributes | Format-KeyValue -idPropertyName id, group_id -removeEmptyValues | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )groups__attributes__local.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
 
 # All global attributes for all receivers - only current values
-$contacts | select -Unique id, global_attributes | select id -ExpandProperty global_attributes | Format-KeyValue -idPropertyName "id" -removeEmptyValues | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )groups__attributes__global.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+#$contacts | select -Unique id, global_attributes | select id, @{name="group_id";expression={ "0" }} -ExpandProperty global_attributes | Format-KeyValue -idPropertyName id, group_id -removeEmptyValues | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )groups__attributes__global.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+# Global and local attributes together
+$localAttributes = $contacts | where { $_.attributes.psobject.properties.count -gt 0 } | select id, group_id -ExpandProperty attributes
+$globalAttributes = $contacts | select -Unique id, global_attributes | select id, @{name="group_id";expression={ "0" }} -ExpandProperty global_attributes
+$localAttributes + $globalAttributes | Format-KeyValue -idPropertyName id, group_id -removeEmptyValues | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )groups__attributes.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
 
 # All events for all receivers (opens, clicks, bounces. logs etc.) - keep history
 if ( $settings.cleverreachDetails['events'] ) {
@@ -644,6 +659,7 @@ if ( $settings.cleverreachDetails['orders'] ) {
 }
 
 Write-Log -message "Exported $( (Get-ChildItem -Path $settings.exportDir).Count ) files with the id $( $processId )"
+
 
 
 ################################################
