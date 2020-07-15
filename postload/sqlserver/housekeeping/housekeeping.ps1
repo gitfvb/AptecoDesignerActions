@@ -71,7 +71,7 @@ $settings = @{
     
 
     # General
-    logfile = "$( $scriptPath )\hubspot_extract.log"
+    logfile = "$( $scriptPath )\housekeeping.log"
 
 }
 
