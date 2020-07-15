@@ -35,15 +35,11 @@ $debug = $false
 #
 ################################################
 
-if ( $debug ) {
-    # Load scriptpath
-    if ($MyInvocation.MyCommand.CommandType -eq "ExternalScript") {
-        $scriptPath = Split-Path -Parent -Path $MyInvocation.MyCommand.Definition
-    } else {
-        $scriptPath = Split-Path -Parent -Path ([Environment]::GetCommandLineArgs()[0])
-    }
+# Load scriptpath
+if ($MyInvocation.MyCommand.CommandType -eq "ExternalScript") {
+    $scriptPath = Split-Path -Parent -Path $MyInvocation.MyCommand.Definition
 } else {
-    $scriptPath = "$( $params.scriptPath )" 
+    $scriptPath = Split-Path -Parent -Path ([Environment]::GetCommandLineArgs()[0])
 }
 Set-Location -Path $scriptPath
 
