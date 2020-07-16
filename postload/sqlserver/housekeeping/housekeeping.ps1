@@ -118,7 +118,6 @@ Write-Log -message "$( $modulename )"
 ################################################
 
 
-Write-Log -message "Chosen extract method: $( $extractMethod )"
 
 
 
