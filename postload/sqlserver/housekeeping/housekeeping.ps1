@@ -128,15 +128,21 @@ Write-Log -message "$( $modulename )"
 ################################################
 
 # General scripts to execute
+$settings.instances | Select -First 1 | ForEach {
+    
+    $instance = $_
+    
+    Get-ChildItem -Path ".\sql\*" -Include @( "*.sql" ) | Sort { $_.Name } | ForEach {
 
-Get-ChildItem -Path ".\sql\*" -Include @( "*.sql" ) | Sort { $_.Name } | ForEach {
+        $file = $_
+        $file.FullName
+        $query = Get-Content -Path "$( $file.FullName )" -Encoding UTF8
+        
+        $result = Invoke-SqlServer -query $query -instance $instance -executeNonQuery
+        Write-Log "Executed '$( $file.Name )' with the result of '$( $result )' records"
 
-    $file = $_
-
-    $file.FullName
-
-    Invoke-Sqlcmd -InputFile $file -Verbose # -ServerInstance -Database 
-
+    }
+    
 }
 
 # If there are other scripts that we can identify by a prefix, put it in a subfolder like "prefix_ws", then all ws_ databases will be used for those scripts
@@ -184,7 +190,7 @@ $settings.instances | ForEach {
             # Executing the script as scalar to execute delete, update etc.
             If ( $db.Name.StartsWith($script.prefix,'CurrentCultureIgnoreCase') ) {
                 $query = Get-Content -Path "$( $script.FullName )" -Encoding UTF8
-                $result = Invoke-SqlServer -query $query -database $db.Name -instance $instance -executeScalar
+                $result = Invoke-SqlServer -query $query -database $db.Name -instance $instance -executeNonQuery
                 Write-Log "Executed '$( ( Get-Item $script.fullname ).Name )' with the result of '$( $result )' records"
             }
 
