@@ -595,7 +595,7 @@ $filesToImport | ForEach {
 
     # Add new columns in persistent table that are only present in temporary tables
     if ( $colsInTemporaryButNotPersistent.count -gt 0 ) {
-        Send-MailMessage -SmtpServer $settings.mailSettings.smtpServer -From $settings.mailSettings.from -To $settings.mailSettings.to -Port $settings.mailSettings.port -UseSsl -Credential $smtpcred
+        Send-MailMessage -SmtpServer $settings.mailSettings.smtpServer -From $settings.mailSettings.from -To $settings.mailSettings.to -Port $settings.mailSettings.port -UseSsl -Credential $smtpcred `
                  -Body "Creating new columns $( $colsInTemporaryButNotPersistent.Name -join ", " ) in persistent table $( $f.BaseName ). Please have a look if those should be added in Apteco Designer." `
                  -Subject "[CRM/Hubspot] Creating new columns in persistent table $( $f.BaseName )"
     }
