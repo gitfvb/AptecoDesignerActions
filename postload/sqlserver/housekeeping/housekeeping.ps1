@@ -69,6 +69,9 @@ $settings = @{
     # General
     logfile = "$( $scriptPath )\housekeeping.log"
 
+    # Windows services that you wish to restart
+    servicesToRestart = @("MSSQLSERVER","MSSQLLaunchpad")
+    
 }
 
 # Log
@@ -218,4 +221,28 @@ $settings.instances | ForEach {
 }
 
 
+################################################
+#
+# RESTART SERVICES IF WISHED
+#
+################################################
+
+
+$settings.servicesToRestart | ForEach {
+
+    $serviceName = $_
+    $currentService = Get-Service -Name $serviceName
+
+    # All matched services, normally this should be one
+    $currentService | ForEach {
+        
+        $service = $_
+        Write-Log "Current status of service '$( $service.Name )' ($( $service.DisplayName )) - $( $service.Status )"
+        Restart-Service -Name $service.Name
+        $newServiceStatus = Get-Service -Name $service.Name
+        Write-Log "New status of service '$( $newServiceStatus.Name )' ($( $newServiceStatus.DisplayName )) - $( $newServiceStatus.Status )"
+    
+    }
+
+}
 
