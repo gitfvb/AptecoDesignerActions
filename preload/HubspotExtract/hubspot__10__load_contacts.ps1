@@ -4,9 +4,9 @@
 #
 ################################################
 
-Param(
-    [hashtable] $params
-)
+#Param(
+#    $scriptPath
+#)
 
 #-----------------------------------------------
 # DEBUG SWITCH
@@ -21,7 +21,6 @@ $debug = $true
 
 if ( $debug ) {
     $params = [hashtable]@{
-        scriptPath = "C:\Apteco\Build\Hubspot\preload\HubspotExtract"
     }
 }
 
@@ -50,16 +49,16 @@ https://developers.hubspot.com/docs/api/crm/contacts
 #
 ################################################
 
-if ( $debug ) {
+#if ( $debug ) {
     # Load scriptpath
     if ($MyInvocation.MyCommand.CommandType -eq "ExternalScript") {
         $scriptPath = Split-Path -Parent -Path $MyInvocation.MyCommand.Definition
     } else {
         $scriptPath = Split-Path -Parent -Path ([Environment]::GetCommandLineArgs()[0])
     }
-} else {
-    $scriptPath = "$( $params.scriptPath )" 
-}
+#} else {
+#    $scriptPath = "$( $params.scriptPath )" 
+#}
 Set-Location -Path $scriptPath
 
 
@@ -109,21 +108,16 @@ $settings = @{
     # Get-PlaintextToSecure -String "token" -keyFile "$( $scriptPath )\aes.key"
     # And get it plaintext back by
     # Get-SecureToPlaintext -String $settings.token 
-    token = "76492d1116743f0423413b16050a5345MgB8AEkAQgBSAFIATABDADgAbgBuAFoAUgBkADEAYwAxAGkAVgBIAHQAUwA4AFEAPQA9AHwAMAA4ADIANABkADQANwA5AGQAMABhADIAYwA5AGEAZABhAGUANQAzAGMANgA1ADIANgA5ADkAZABlAGQAOAAzAGEAOQBlADQAZAAyADMAZgA5ADQANQA2AGQAMwA4AGIAYgAwADIAMQAxADMANQA1AGYANQAwAGQAYQA2ADAANAA4AGQAMwBkADQAYwAzADEAMQA1AGYANQAxADcAZgA4ADMANwAzAGIAOAAyADAAOABjADUAMgBlADUAZgA4ADQAYgBmADAAMgA3ADAAOQAyADkAMQAxAGEAZgBhADEAMgA3ADAAYQA3ADEANwAyADUAMQA2AGMANwBiADAAZQA1ADQAOQBjAGYAZAAxADYANAA1ADMAMQBkADEAMgA4ADcANQBmAGIAZgAxAGEAZABmAGEAZgBjADMANQBiADkAMwA="
-    mailSecureString = "76492d1116743f0423413b16050a5345MgB8ADQARQByAEgANABpAEcAYgBEAHgAQQBDAGYAZgBYAHQATgB5AHUAbgBDAEEAPQA9AHwAYwAxADYANwA0ADAAYQAyADUAZABmADQAMwA4AGUAZQA2ADIAOAA0ADcAZABmADEAYQBlADIAZABhADgAYgA0ADcANgA0ADAAZAA2ADEANwA0ADYANgBmADEAMABiADAAMwA1ADYAMwAzADYAMgA5AGMAYgAwADAAOQA2AGQAZABiADQAMgBkAGMAZgA0ADAAMQBmADUANQAwAGEAMwBhADEAMQA4ADMAMAAwADEAOQBiADcANAAxADIAMgAwADkA"
-
     base = "https://api.hubapi.com/"
     loadArchivedRecords = $true
     pageLimitGet = 100 # Max amount of records to download with one API call
     exportDir = "$( $scriptPath )\extract\$( Get-Date $timestamp -Format "yyyyMMddHHmmss" )_$( $processId )\"
     backupDir = "$( $scriptPath )\backup"
-    sqliteDb = "C:\Apteco\Build\Hubspot\data\hubspot.sqlite" # TODO [ ] replace the first part of the path with a designer environment variable
     filterForSqliteImport = @("*.csv";"*.txt";"*.tab")
     logfile = "$( $scriptPath )\hubspot_extract.log"
     backupSqlite = $true # $true|$false if you wish to create backups of the sqlite database
-    
+
     createBuildNow = $true # $true|$false if you want to create an empty file for "build.now"
-    buildNowFile = "C:\Apteco\Build\Hubspot\now\build.now" # Path to the build now file
 
     # Settings for smtp mails
     mailSettings = @{
@@ -134,6 +128,7 @@ $settings = @{
     }
 
 }
+
 
 $itemsToBackup = @(
         "$( $settings.sqliteDb )"
@@ -194,7 +189,8 @@ $hapikey = "&hapikey=$( Get-SecureToPlaintext -String $settings.token )"
 $stringSecure = ConvertTo-SecureString -String ( Get-SecureToPlaintext -String $settings.mailSecureString ) -AsPlainText -Force
 $smtpcred = New-Object PSCredential $settings.mailSettings.from,$stringSecure
 
-exit 0
+# exit point for creating secure strings manually
+#exit 0
 
 ################################################
 #
@@ -223,36 +219,19 @@ if ( $paramsExisting ) {
 }
 
 
+
+
 ################################################
 #
-# MORE SETTINGS AFTER LOADING FUNCTIONS
+# PROGRAM
 #
 ################################################
 
-# Load last session
-If ( Check-Path -Path "$( $scriptPath )\$( $lastSessionFilename )" ) {
-    $lastSession = Get-Content -Path "$( $scriptPath )\$( $lastSessionFilename )" -Encoding UTF8 -Raw | ConvertFrom-Json
-    $lastTimestamp = $lastSession.lastTimestamp
-    $extractMethod = "DELTA" # FULL|DELTA
+#-----------------------------------------------
+# PREPARE HEADERS
+#-----------------------------------------------
 
-    Write-Log -message "Last timestamp: $( $lastTimestamp )"
-    Write-Log -message "Pretty timestamp: $( Get-Date ( Get-DateTimeFromUnixtime -unixtime $lastTimestamp -inMilliseconds -convertToLocalTimezone ) -Format "yyyyMMdd_HHmmss" )"
-
-} else {
-    $extractMethod = "FULL" # FULL|DELTA
-}
-
-Write-Log -message "Chosen extract method: $( $extractMethod )"
-
-#$lastTimestamp = Get-Unixtime -timestamp ( (Get-Date).AddMonths(-1) ) -inMilliseconds
-[uint64]$currentTimestamp = Get-Unixtime -inMilliseconds -timestamp $timestamp
-$currentTimestampDateTime = Get-DateTimeFromUnixtime -unixtime $currentTimestamp -inMilliseconds -convertToLocalTimezone
-
-
-Write-Log -message "Current timestamp: $( $currentTimestamp )"
-
-
-
+$contentType = "application/json"
 
 
 ################################################
@@ -260,7 +239,6 @@ Write-Log -message "Current timestamp: $( $currentTimestamp )"
 # CHECK CONNECTION AND LIMITS
 #
 ################################################
-
 
 $object = "integrations"
 $apiVersion = "v1"
@@ -283,30 +261,228 @@ if (!($currentApiLimit -gt 0)) {
 }
 
 
+################################################
+#
+# LOAD OBJECTS PROPERTIES
+#
+################################################
+
+# https://developers.hubspot.com/docs/api/crm/properties
+
+# TODO [ ] put this one into the settings
+$objectTypesToLoad = @(
+    "contacts"
+    "companies"
+)
+
+$properties = [PSCustomObject]@{}
+$objectTypesToLoad | ForEach {
+
+    $objectType = $_
+    $object = "crm"
+    $apiVersion = "v3"
+    $archived = "false"
+    $type = "properties"
+    $url = "$( $settings.base )$( $object )/$( $version )/$( $type )/$( $objectType )?archived=$( $archived )$( $hapikey )"
+    $res = Invoke-RestMethod -Method Get -Uri $url
+
+    # Find out different groups of properties
+    #$propertiesGroups = $res | select -Unique groupName
+
+    # Create custom object to hold all properties
+    $properties | Add-Member -MemberType NoteProperty -Name $objectType -Value $res
+
+    Write-Log -message "Loaded $( $properties.count ) 'contacts' properties and $( $propertiesGroups.count ) property groups"
+
+}
+
 
 ################################################
 #
-# LOAD CONTACTS PROPERTIES
+# PREPARE LOADING OBJECTS
 #
 ################################################
 
 
-$object = "properties"
-$apiVersion = "v1"
-$url = "$( $settings.base )$( $object )/$( $apiVersion )/contacts/properties?$( $hapikey )"
+#-----------------------------------------------
+# LOAD LAST SESSION AND DECIDE ON EXTRACT METHOD
+#-----------------------------------------------
 
-$properties = Invoke-RestMethod -Method Get -Uri $url
+If ( Check-Path -Path "$( $scriptPath )\$( $lastSessionFilename )" ) {
+    $lastSession = Get-Content -Path "$( $scriptPath )\$( $lastSessionFilename )" -Encoding UTF8 -Raw | ConvertFrom-Json
+    $lastTimestamp = $lastSession.lastTimestamp
+    $extractMethod = "DELTA" # FULL|DELTA
 
-# Find out different types of properties
-$propertiesGroups = $properties | select -Unique groupName
+    Write-Log -message "Last timestamp: $( $lastTimestamp )"
+    Write-Log -message "Pretty timestamp: $( Get-Date ( Get-DateTimeFromUnixtime -unixtime $lastTimestamp -inMilliseconds -convertToLocalTimezone ) -Format "yyyyMMdd_HHmmss" )"
 
-# Show properties
-#$properties | sort groupName | Out-GridView
+} else {
+    $extractMethod = "FULL" # FULL|DELTA
+}
 
-#$allProperties = $properties.name -join ","
+Write-Log -message "Chosen extract method: $( $extractMethod )"
 
-Write-Log -message "Loaded $( $properties.count ) 'contacts' properties and $( $propertiesGroups.count ) property groups"
 
+#-----------------------------------------------
+# LOG LAST TIMESTAMPS
+#-----------------------------------------------
+
+#$lastTimestamp = Get-Unixtime -timestamp ( (Get-Date).AddMonths(-1) ) -inMilliseconds
+[uint64]$currentTimestamp = Get-Unixtime -inMilliseconds -timestamp $timestamp
+$currentTimestampDateTime = Get-DateTimeFromUnixtime -unixtime $currentTimestamp -inMilliseconds -convertToLocalTimezone
+Write-Log -message "Current timestamp: $( $currentTimestamp )"
+
+
+################################################
+#
+# LOAD OBJECTS
+#
+################################################
+
+
+Switch ( $extractMethod ) {
+    
+    "FULL" {
+
+        #-----------------------------------------------
+        # FULL ACTIVE + OPTIONALLY ARCHIVED OBJECTS
+        #-----------------------------------------------
+
+        $objects = [PSCustomObject]@{}
+        $objectTypesToLoad | ForEach {
+            
+            $objectType = $_
+            $object = "crm"
+            $apiVersion = "v3"
+            $limit = $settings.pageLimitGet
+            $archived = "false"
+            $props = $properties.$objectType
+            $type = "objects"
+            $url = "$( $settings.base )$( $object )/$( $apiVersion )/$( $type )/$( $objectType )?limit=$( $limit )&archived=$( $archived )&properties=$( $props.name -join "," )$( $hapikey )"
+            
+            $loadArchivedInProgress = $false
+            $finish = $false
+            $obj = [System.Collections.ArrayList]@()
+            Do {
+        
+                # Get all objects in page
+                $objRes = Invoke-RestMethod -Method Get -Uri $url -Verbose
+        
+                # Add objects to array
+                $obj.AddRange( $objRes.results )
+    
+                Write-Log -message "Loaded $( $obj.count ) '$( $objectType )' in total"
+    
+                # Load next url
+                $url = "$( $objRes.paging.next.link )$( $hapikey )"
+                
+                # Check if finished
+                # TODO [ ] Check if the hapikey check can be replaced with this one:
+                # while ( $contactsResult.paging ) # only while the paging object is existing
+                if ( $url -ne $hapikey ) {
+                    # Check if archived records should be loaded, too
+                    if ( $settings.loadArchivedRecords -and $loadArchivedInProgress -eq $false ) {
+                        $loadArchivedInProgress = $true
+                        $archived = "true"
+                        $url = "$( $settings.base )$( $object )/$( $apiVersion )/objects/$( $objectType )?limit=$( $limit )&archived=$( $archived )&properties=$( $props.name -join "," )$( $hapikey )"
+                        Write-Log -message "Loading archived records now, too"
+                    } else {
+                        $finish = $true
+                    }
+                }
+
+            } until ( $finish )    
+
+            Write-Log -message "Loaded $( $obj.count ) '$( $objectType )' in summary"
+
+            # Add objects to a pscustom
+            $objects | Add-Member -MemberType NoteProperty -Name $objectType -Value $obj
+
+        }
+
+    }
+
+    "DELTA" {
+
+
+        #-----------------------------------------------
+        # DELTA ACTIVE OBJECTS
+        #-----------------------------------------------
+        
+        $objects = [PSCustomObject]@{}
+        $objectTypesToLoad | ForEach {
+            
+            $objectType = $_
+
+            $limit = $settings.pageLimitGet
+            $props = $properties.$objectType
+
+            # Create body to ask for objects
+            $body = [ordered]@{
+                "filterGroups" = @(
+                    @{
+                        "filters" = @(
+                            @{
+                                "propertyName"="lastmodifieddate"
+                                "operator"="GTE"
+                                "value"= $lastTimestamp
+                            }
+                        )
+                    }
+                )
+                sorts = @("lastmodifieddate")
+                #query = ""
+                properties = $props.name #@("firstname", "lastname", "email")
+                limit = $limit
+                after = 0
+            }
+
+
+            $object = "crm"
+            $apiVersion = "v3"
+            $type = "objects"
+            $url = "$( $settings.base )$( $object )/$( $apiVersion )/$( $type )/$( $objectType )/search?$( $hapikey )"
+
+            # Load the data
+            $obj = [System.Collections.ArrayList]@()
+            Do {
+        
+                # Get all objects in page
+                $bodyJson = $body | ConvertTo-Json -Depth 8
+                $objRes = Invoke-RestMethod -Method Post -Uri $url -ContentType $contentType -Body $bodyJson -Verbose
+        
+                # Add objects to array
+                $obj.AddRange( $objRes.results )
+    
+                Write-Log -message "Loaded $( $obj.count ) '$( $objectType )' in total"
+                
+                # prepare next batch -> with search the "paging" does not contain IDs, it contains only integers the index of the search result
+                $body.after = $objRes.paging.next.after
+
+            } while ( $objRes.paging ) # only while the paging object is existing
+
+            Write-Log -message "Loaded $( $obj.count ) '$( $objectType )' in summary"
+
+            # Add objects to a pscustom
+            $objects | Add-Member -MemberType NoteProperty -Name $objectType -Value $obj
+
+        }
+
+
+    }
+
+}
+
+
+
+
+
+
+
+
+
+
+# TODO [ ] Test the code above and implement the code from here on
 
 ################################################
 #
@@ -441,14 +617,14 @@ Write-Log -message "Done with downloading $( $contacts.count ) 'contacts' in tot
 #
 ################################################
 
-Write-Log -message "Exporting the data into CSV and creating a folder with the id $( $processId )"
-
-# Create folder
-New-Item -Path $settings.exportDir -ItemType Directory
-
 $objectPrefix = "contacts__"
 
 if ($contacts.Count -gt 0) {
+    
+    Write-Log -message "Exporting the data into CSV and creating a folder with the id $( $processId )"
+
+    # Create folder
+    New-Item -Path $settings.exportDir -ItemType Directory
 
     # Export properties table
     $properties | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )$( $objectPrefix )properties.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
@@ -462,9 +638,9 @@ if ($contacts.Count -gt 0) {
         $contacts.properties | select $colsForExport | Export-Csv -Path "$( $settings.exportDir )$( $objectPrefix )$( $currentGroup ).csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
     }
 
-}
+    Write-Log -message "Exported $( (Get-ChildItem -Path $settings.exportDir).Count ) files with the id $( $processId )"
 
-Write-Log -message "Exported $( (Get-ChildItem -Path $settings.exportDir).Count ) files with the id $( $processId )"
+}
 
 
 ################################################
@@ -491,8 +667,11 @@ Write-Log -message "Saved the current timestamp '$( $currentTimestamp )' for the
 
 # Exit if there is no new result
 if ( $contacts.count -eq 0 ) {
+    
     Write-Log -message "No new data -> exit"
+    
     Exit 0
+
 }
 
 ################################################
@@ -635,7 +814,16 @@ $filesToImport | ForEach {
 ################################################
 
 if ( $settings.createBuildNow ) {
-    Write-Log -message "Creating file '$settings.buildNowFile'"
+    Write-Log -message "Creating file '$( $settings.buildNowFile )'"
     [datetime]::Now.ToString("yyyyMMddHHmmss") | Out-File -FilePath $settings.buildNowFile -Encoding utf8 -Force
 }
 
+
+################################################
+#
+# STARTING BUILD
+#
+################################################
+
+
+& "C:\Program Files\Apteco\FastStats Designer\DesignerConsole.exe" "D:\Apteco\Build\Hubspot\designs\hubspot.xml" /load
