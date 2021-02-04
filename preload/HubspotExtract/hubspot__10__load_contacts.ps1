@@ -21,6 +21,7 @@ $debug = $true
 
 if ( $debug ) {
     $params = [hashtable]@{
+        scriptPath = "C:\Users\Florian\Documents\GitHub\AptecoDesignerActions\preload\HubspotExtract"
     }
 }
 
@@ -42,24 +43,24 @@ https://developers.hubspot.com/docs/api/crm/contacts
 #>
 
 
-
 ################################################
 #
 # SCRIPT ROOT
 #
 ################################################
 
-#if ( $debug ) {
+if ( $debug ) {
     # Load scriptpath
     if ($MyInvocation.MyCommand.CommandType -eq "ExternalScript") {
         $scriptPath = Split-Path -Parent -Path $MyInvocation.MyCommand.Definition
     } else {
         $scriptPath = Split-Path -Parent -Path ([Environment]::GetCommandLineArgs()[0])
     }
-#} else {
-#    $scriptPath = "$( $params.scriptPath )" 
-#}
+} else {
+    $scriptPath = "$( $params.scriptPath )" 
+}
 Set-Location -Path $scriptPath
+
 
 
 ################################################
@@ -72,16 +73,12 @@ Set-Location -Path $scriptPath
 $functionsSubfolder = "functions"
 $libSubfolder = "lib"
 $settingsFilename = "settings.json"
-$lastSessionFilename = "lastsession.json"
-$processId = [guid]::NewGuid()
 $modulename = "hubspot_extract"
+$processId = [guid]::NewGuid()
 $timestamp = [datetime]::Now
 
-# Load last session
-#$lastSession = Get-Content -Path "$( $scriptPath )\$( $lastSessionFilename )" -Encoding UTF8 -Raw | ConvertFrom-Json
-
 # Load settings
-#$settings = Get-Content -Path "$( $scriptPath )\$( $settingsFilename )" -Encoding UTF8 -Raw | ConvertFrom-Json
+$settings = Get-Content -Path "$( $scriptPath )\$( $settingsFilename )" -Encoding UTF8 -Raw | ConvertFrom-Json
 
 # Allow only newer security protocols
 # hints: https://www.frankysweb.de/powershell-es-konnte-kein-geschuetzter-ssltls-kanal-erstellt-werden/
@@ -94,56 +91,10 @@ if ( $settings.changeTLS ) {
     [System.Net.ServicePointManager]::SecurityProtocol = $AllProtocols
 }
 
-# more settings
-#$logfile = $settings.logfile
-#$guid = ([guid]::NewGuid()).Guid # TODO [ ] use this guid for a specific identifier of this job in the logfiles
-
-# TODO  [ ] unify settings in json file
-$settings = @{
-
-    # Security settings
-    aesFile = "$( $scriptPath )\aes.key"
-
-    # Create a secure string like
-    # Get-PlaintextToSecure -String "token" -keyFile "$( $scriptPath )\aes.key"
-    # And get it plaintext back by
-    # Get-SecureToPlaintext -String $settings.token 
-    base = "https://api.hubapi.com/"
-    loadArchivedRecords = $true
-    pageLimitGet = 100 # Max amount of records to download with one API call
-    exportDir = "$( $scriptPath )\extract\$( Get-Date $timestamp -Format "yyyyMMddHHmmss" )_$( $processId )\"
-    backupDir = "$( $scriptPath )\backup"
-    filterForSqliteImport = @("*.csv";"*.txt";"*.tab")
-    logfile = "$( $scriptPath )\hubspot_extract.log"
-    backupSqlite = $true # $true|$false if you wish to create backups of the sqlite database
-
-    createBuildNow = $true # $true|$false if you want to create an empty file for "build.now"
-
-    # Settings for smtp mails
-    mailSettings = @{
-        smtpServer = "smtp.ionos.de"
-        from = "admin@crm.apteco.io"
-        to = "florian.von.bracht@apteco.de"
-        port = 587
-    }
-
-}
-
-
+# Backup settings
 $itemsToBackup = @(
-        "$( $settings.sqliteDb )"
-    )
-
-<#
-# TODO [ ] load token from Designer environment variable
-$token = Get-SecureToPlaintext -String $settings.token 
-$settings.base = "https://api.hubapi.com/"
-$loadArchivedRecords = $true
-$pageLimitGet = 100 # Max amount of records to download with one API call
-$exportDir = "$( $scriptPath )\extract\$( $processId )\"
-$sqliteDb = "C:\Apteco\Build\Hubspot\data\hubspot.sqlite" # TODO [ ] replace the first part of the path with a designer environment variable
-$filterForSqliteImport = @("*.csv";"*.txt";"*.tab")
-#>
+    "$( $settings.sqliteDb )"
+)
 
 # Log
 $logfile = $settings.logfile
@@ -176,24 +127,6 @@ $libExecutables | ForEach {
 
 ################################################
 #
-# MORE SETTINGS AFTER LOADING FUNCTIONS
-#
-################################################
-
-
-# Create general settings
-$keyfilename = $settings.aesFile
-$hapikey = "&hapikey=$( Get-SecureToPlaintext -String $settings.token )"
-
-# Create credentials for mails
-$stringSecure = ConvertTo-SecureString -String ( Get-SecureToPlaintext -String $settings.mailSecureString ) -AsPlainText -Force
-$smtpcred = New-Object PSCredential $settings.mailSettings.from,$stringSecure
-
-# exit point for creating secure strings manually
-#exit 0
-
-################################################
-#
 # LOG INPUT PARAMETERS
 #
 ################################################
@@ -201,8 +134,10 @@ $smtpcred = New-Object PSCredential $settings.mailSettings.from,$stringSecure
 # Start the log
 Write-Log -message "----------------------------------------------------"
 Write-Log -message "$( $modulename )"
-Write-Log -message "Got a file with these arguments: $( [Environment]::GetCommandLineArgs() )"
-
+Write-Log -message "Got a file with these arguments:"
+[Environment]::GetCommandLineArgs() | ForEach {
+    Write-Log -message "    $( $_ -replace "`r|`n",'' )"
+}
 # Check if params object exists
 if (Get-Variable "params" -Scope Global -ErrorAction SilentlyContinue) {
     $paramsExisting = $true
@@ -212,13 +147,12 @@ if (Get-Variable "params" -Scope Global -ErrorAction SilentlyContinue) {
 
 # Log the params, if existing
 if ( $paramsExisting ) {
+    Write-Log -message "Got these params object:"
     $params.Keys | ForEach-Object {
         $param = $_
-        Write-Log -message "    $( $param ): $( $params[$param] )"
+        Write-Log -message "    ""$( $param )"" = ""$( $params[$param] )"""
     }
 }
-
-
 
 
 ################################################
@@ -228,7 +162,46 @@ if ( $paramsExisting ) {
 ################################################
 
 #-----------------------------------------------
-# PREPARE HEADERS
+# CHECK RESULTS FOLDER
+#-----------------------------------------------
+
+$foldersToCheck = @(
+    $settings.exportDir
+    $settings.backupDir
+)
+
+$foldersToCheck | ForEach {
+    $folder = $_
+    if ( !(Test-Path -Path $folder) ) {
+        Write-Log -message "Folder $( $folder ) does not exist. Creating the it now!"
+        New-Item -Path "$( $folder )" -ItemType Directory
+    }
+}
+
+
+#-----------------------------------------------
+# PREPARE TOKEN
+#-----------------------------------------------
+
+if ( $settings.saveHapiKeyAsFile ) {
+    $hapikeyEncrypted = Get-Content $settings.hapiKeyFile -Encoding UTF8 # TODO [ ] use the path here from settings
+} else {
+    $hapikeyEncrypted = $settings.login.hapikey
+}
+
+$hapikey = "&hapikey=$( Get-SecureToPlaintext -String $hapikeyEncrypted )"
+
+
+#-----------------------------------------------
+# MAIL SETTINGS
+#-----------------------------------------------
+
+$stringSecure = ConvertTo-SecureString -String ( Get-SecureToPlaintext -String $settings.mail.password ) -AsPlainText -Force
+$smtpcred = New-Object PSCredential $settings.mail.from,$stringSecure
+
+
+#-----------------------------------------------
+# HEADERS
 #-----------------------------------------------
 
 $contentType = "application/json"
@@ -270,10 +243,7 @@ if (!($currentApiLimit -gt 0)) {
 # https://developers.hubspot.com/docs/api/crm/properties
 
 # TODO [ ] put this one into the settings
-$objectTypesToLoad = @(
-    "contacts"
-    "companies"
-)
+$objectTypesToLoad = $settings.objectTypesToLoad
 
 $properties = [PSCustomObject]@{}
 $objectTypesToLoad | ForEach {
@@ -283,16 +253,16 @@ $objectTypesToLoad | ForEach {
     $apiVersion = "v3"
     $archived = "false"
     $type = "properties"
-    $url = "$( $settings.base )$( $object )/$( $version )/$( $type )/$( $objectType )?archived=$( $archived )$( $hapikey )"
+    $url = "$( $settings.base )$( $object )/$( $apiVersion )/$( $type )/$( $objectType )?archived=$( $archived )$( $hapikey )"
     $res = Invoke-RestMethod -Method Get -Uri $url
 
     # Find out different groups of properties
     #$propertiesGroups = $res | select -Unique groupName
 
     # Create custom object to hold all properties
-    $properties | Add-Member -MemberType NoteProperty -Name $objectType -Value $res
+    $properties | Add-Member -MemberType NoteProperty -Name $objectType -Value $res.results
 
-    Write-Log -message "Loaded $( $properties.count ) 'contacts' properties and $( $propertiesGroups.count ) property groups"
+    Write-Log -message "Loaded $( $res.results.count ) '$( $objectType )' properties" # and $( $propertiesGroups.count ) property groups"
 
 }
 
@@ -308,8 +278,8 @@ $objectTypesToLoad | ForEach {
 # LOAD LAST SESSION AND DECIDE ON EXTRACT METHOD
 #-----------------------------------------------
 
-If ( Check-Path -Path "$( $scriptPath )\$( $lastSessionFilename )" ) {
-    $lastSession = Get-Content -Path "$( $scriptPath )\$( $lastSessionFilename )" -Encoding UTF8 -Raw | ConvertFrom-Json
+If ( Check-Path -Path "$( $settings.sessionFile )" ) {
+    $lastSession = Get-Content -Path "$( $settings.sessionFile )" -Encoding UTF8 -Raw | ConvertFrom-Json
     $lastTimestamp = $lastSession.lastTimestamp
     $extractMethod = "DELTA" # FULL|DELTA
 
@@ -372,23 +342,25 @@ Switch ( $extractMethod ) {
                 $obj.AddRange( $objRes.results )
     
                 Write-Log -message "Loaded $( $obj.count ) '$( $objectType )' in total"
-    
-                # Load next url
-                $url = "$( $objRes.paging.next.link )$( $hapikey )"
-                
+                    
                 # Check if finished
-                # TODO [ ] Check if the hapikey check can be replaced with this one:
-                # while ( $contactsResult.paging ) # only while the paging object is existing
-                if ( $url -ne $hapikey ) {
+                if ( $objRes.paging ) {
+                    
+                    # Load next url
+                    $url = "$( $objRes.paging.next.link )$( $hapikey )"
+
+                } else {
+
                     # Check if archived records should be loaded, too
                     if ( $settings.loadArchivedRecords -and $loadArchivedInProgress -eq $false ) {
                         $loadArchivedInProgress = $true
                         $archived = "true"
-                        $url = "$( $settings.base )$( $object )/$( $apiVersion )/objects/$( $objectType )?limit=$( $limit )&archived=$( $archived )&properties=$( $props.name -join "," )$( $hapikey )"
+                        $url = "$( $settings.base )$( $object )/$( $apiVersion )/$( $type )/$( $objectType )?limit=$( $limit )&archived=$( $archived )&properties=$( $props.name -join "," )$( $hapikey )"
                         Write-Log -message "Loading archived records now, too"
                     } else {
                         $finish = $true
                     }
+
                 }
 
             } until ( $finish )    
@@ -403,7 +375,6 @@ Switch ( $extractMethod ) {
     }
 
     "DELTA" {
-
 
         #-----------------------------------------------
         # DELTA ACTIVE OBJECTS
@@ -474,173 +445,56 @@ Switch ( $extractMethod ) {
 }
 
 
-
-
-
-
-
-
-
-
-# TODO [ ] Test the code above and implement the code from here on
-
-################################################
-#
-# LOAD CONTACTS
-#
-################################################
-
-Switch ( $extractMethod ) {
-    
-    "FULL" {
-        
-
-        #-----------------------------------------------
-        # FULL ACTIVE CONTACTS
-        #-----------------------------------------------
-
-        $object = "crm"
-        $apiVersion = "v3"
-        $limit = $settings.pageLimitGet
-        $archived = "false"
-        $url = "$( $settings.base )$( $object )/$( $apiVersion )/objects/contacts?limit=$( $limit )&archived=$( $archived )&properties=$( $properties.name -join "," )$( $hapikey )"
-
-        $contacts = @()
-        Do {
-    
-            # Get all contacts
-            $contactsResult = Invoke-RestMethod -Method Get -Uri $url -Verbose
-    
-            # Add contacts to array
-            $contacts += $contactsResult.results
-
-            Write-Log -message "Loaded $( $contacts.count ) 'contacts' (currently non-archived) in total"
-
-            # Load next url
-            $url = "$( $contactsResult.paging.next.link )$( $hapikey )"
-
-        } while ( $url -ne $hapikey )
-
-
-        #-----------------------------------------------
-        # FULL ARCHIVED CONTACTS
-        #-----------------------------------------------
-
-        if ( $settings.loadArchivedRecords ) {
-
-            $object = "crm"
-            $apiVersion = "v3"
-            $limit = $settings.pageLimitGet
-            $archived = "true"
-            $url = "$( $settings.base )$( $object )/$( $apiVersion )/objects/contacts?limit=$( $limit )&archived=$( $archived )&properties=$( $properties.name -join "," )$( $hapikey )"
-
-            #$archivedContacts = @()
-            Do {
-    
-                # Get all contacts
-                $archivedContactsResult = Invoke-RestMethod -Method Get -Uri $url -Verbose
-    
-                # Add contacts to array
-                $contacts += $archivedContactsResult.results
-
-                Write-Log -message "Loaded $( $contacts.count ) 'contacts' (currently archived) in total"
-
-                # Load next url
-                $url = "$( $archivedContactsResult.paging.next.link )$( $hapikey )"
-
-            } while ( $url -ne $hapikey )
-
-        }
-
-    }
-
-    "DELTA" {
-
-
-        #-----------------------------------------------
-        # DELTA ACTIVE CONTACTS
-        #-----------------------------------------------
-
-        $object = "crm"
-        $apiVersion = "v3"
-        $limit = $settings.pageLimitGet
-        $url = "$( $settings.base )$( $object )/$( $apiVersion )/objects/contacts/search?$( $hapikey )"
-
-        # Create body to ask for contacts
-        $body = [ordered]@{
-            "filterGroups" = @(
-                @{
-                    "filters" = @(
-                        @{
-                            "propertyName"="lastmodifieddate"
-                            "operator"="GTE"
-                            "value"= $lastTimestamp
-                         }
-                    )
-                }
-            )
-            sorts = @("lastmodifieddate")
-            #query = ""
-            properties = $properties.name #@("firstname", "lastname", "email")
-            limit = $limit
-            after = 0
-        } 
-        
-        # Query the result in pages
-        $contacts = @()
-        Do {
-    
-            # Get all contacts results
-            $bodyJson = $body | ConvertTo-Json -Depth 8
-            $contactsResult = Invoke-RestMethod -Method Post -Uri $url -ContentType "application/json" -Body $bodyJson -Verbose
-    
-            # Add contacts to array
-            $contacts += $contactsResult.results
-
-            Write-Log -message "Loaded $( $contacts.count ) 'contacts' in total"
-
-            # prepare next batch -> with search the "paging" does not contain IDs, it contains only integers the index of the search result
-            $body.after = $contactsResult.paging.next.after
-
-        } while ( $contactsResult.paging ) # only while the paging object is existing
-
-    }
-
-}
-
-Write-Log -message "Done with downloading $( $contacts.count ) 'contacts' in total"
-
-
 ################################################
 #
 # EXPORT DATA INTO CSV
 #
 ################################################
 
-$objectPrefix = "contacts__"
+#-----------------------------------------------
+# CREATE EXPORT FOLDER
+#-----------------------------------------------
 
-if ($contacts.Count -gt 0) {
-    
-    Write-Log -message "Exporting the data into CSV and creating a folder with the id $( $processId )"
+$exportFolder = "$( $settings.exportDir )\$( $currentTimestamp )_$( $processId )"
+Write-Log -message "Folder $( $exportFolder ) does not exist. Creating the folder now!"
+New-Item -Path "$( $exportFolder )" -ItemType Directory
 
-    # Create folder
-    New-Item -Path $settings.exportDir -ItemType Directory
+#-----------------------------------------------
+# EXPORT FILES
+#-----------------------------------------------
 
-    # Export properties table
-    $properties | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * | Export-Csv -Path "$( $settings.exportDir )$( $objectPrefix )properties.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+$objectTypesToLoad | ForEach {
 
-    # Export data
-    $contacts | Select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, id, createdAt, updatedAt, archived -ExpandProperty properties | Out-Null # Expand contacts first
-    $propertiesGroups | ForEach-Object {
-        $currentGroup = $_.groupName -replace "-","" # replace dashes in group names if present, because sqlite does not like them as table names
-        $currentProperties = $properties | where { $_.groupName -eq $currentGroup } | Select name
-        $colsForExport = @("ExtractTimestamp","id", "createdAt", "updatedAt", "archived") + $currentProperties.name
-        $contacts.properties | select $colsForExport | Export-Csv -Path "$( $settings.exportDir )$( $objectPrefix )$( $currentGroup ).csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+    $objectType = $_
+    $objectPrefix = "$( $objectType )__"
+
+    if ( $objects.$objectType.count -gt 0 ) {
+
+        Write-Log -message "Exporting the data into CSV and creating a folder with the id $( $processId )"
+
+        # Export properties table
+        $properties.$objectType | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * `
+        | Export-Csv -Path "$( $exportFolder )\$( $objectPrefix )properties.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+        # Export properties options
+        $properties.$objectType | select name -ExpandProperty options `
+        | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * `
+        | Export-Csv -Path "$( $exportFolder )\$( $objectPrefix )properties__options.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+        # Export object type meta data like id, updated etc.
+        $objects.$objectType | Select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * -ExcludeProperty properties `
+        | Export-Csv -Path "$( $exportFolder )\$( $objectPrefix )meta.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+        # Export properties of objects
+        $objects.$objectType | select id -ExpandProperty properties `
+        | Format-KeyValue -idPropertyName id -removeEmptyValues `
+        | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * `
+        | Export-Csv -Path "$( $exportFolder )\$( $objectPrefix )properties__values.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
     }
 
-    Write-Log -message "Exported $( (Get-ChildItem -Path $settings.exportDir).Count ) files with the id $( $processId )"
-
 }
+
 
 
 ################################################
@@ -673,6 +527,10 @@ if ( $contacts.count -eq 0 ) {
     Exit 0
 
 }
+
+
+exit 0
+
 
 ################################################
 #
@@ -806,6 +664,102 @@ $filesToImport | ForEach {
     Write-Log -message "Dropping temporary table '$( $destination )'"
 }  
 
+
+
+
+
+
+################################################
+#
+# LOAD CSV INTO SQLITE (CLEVERREACH)
+#
+################################################
+<#
+# TODO [ ] make use of transactions for sqlite to get it safe
+
+Write-Log -message "Import data into sqlite '$( $settings.sqliteDb )'"    
+
+# Settings for sqlite
+$sqliteExe = $libExecutables.Where({$_.name -eq "sqlite3.exe"}).FullName
+$processIdSqliteSafe = "temp__$( $processId.Guid.Replace('-','') )" # sqlite table names are not allowed to contain dashes or begin with numbers
+$filesToImport = Get-ChildItem -Path $settings.exportDir -Include $settings.filterForSqliteImport -Recurse
+
+# Create database if not existing
+# In sqlite the database gets automatically created if it does not exist
+
+# Import the files temporarily with process id
+$filesToImport | ForEach {
+    
+    $f = $_
+    $destination = "$( $processIdSqliteSafe )__$( $f.BaseName )"
+
+    # Import data
+    ImportCsv-ToSqlite -sourceCsv $f.FullName -destinationTable $destination -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
+
+    # Create persistent tables if not existing
+    $tableCreationStatement  = ( Read-Sqlite -query ".schema $( $destination )" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe -convertCsv $false ) -replace $destination, "IF NOT EXISTS $( $f.BaseName )"
+    $tableCreation = Read-Sqlite -query $tableCreationStatement -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe -convertCsv $false
+
+    Write-Log -message "Import temporary table '$( $destination )' and create persistent table if not exists"    
+
+}
+
+# Import data from temporary tables to persistent tables
+$filesToImport | ForEach {
+    
+    $f = $_
+    $destination = "$( $processIdSqliteSafe )__$( $f.BaseName )"
+
+    Write-Log -message "Import temporary table '$( $destination )' into persistent table '$( $f.BaseName )'"    
+
+
+    # Column names of temporary table    
+    $columnsTemp = Read-Sqlite -query "PRAGMA table_info($( $destination ))" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
+
+    # Column names of persistent table
+    $columnsPersistent = Read-Sqlite -query "PRAGMA table_info($( $f.BaseName ))" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
+    $columnsPersistensString = $columnsPersistent.Name -join ", "
+
+    # Compare columns
+    $differences = Compare-Object -ReferenceObject $columnsPersistent -DifferenceObject $columnsTemp -Property Name
+    $colsInPersistentButNotTemporary = $differences | where { $_.SideIndicator -eq "<=" }
+    $colsInTemporaryButNotPersistent = $differences | where { $_.SideIndicator -eq "=>" }
+
+    # Add new columns in persistent table that are only present in temporary tables
+    if ( $colsInTemporaryButNotPersistent.count -gt 0 ) {
+        Send-MailMessage -SmtpServer $settings.mailSettings.smtpServer -From $settings.mailSettings.from -To $settings.mailSettings.to -Port $settings.mailSettings.port -UseSsl -Credential $smtpcred
+                 -Body "Creating new columns $( $colsInTemporaryButNotPersistent.Name -join ", " ) in persistent table $( $f.BaseName ). Please have a look if those should be added in Apteco Designer." `
+                 -Subject "[CRM/Hubspot] Creating new columns in persistent table $( $f.BaseName )"
+    }
+    $colsInTemporaryButNotPersistent | ForEach {
+        $newColumnName = $_.Name
+        Write-Log -message "WARNING: Creating a new column '$( $newColumnName )' in table '$( $f.BaseName )'"
+        Read-Sqlite -query "ALTER TABLE $( $f.BaseName ) ADD $( $newColumnName ) TEXT" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe    
+    }
+
+    # Add new columns in temporary table
+    # There is no need to do that because the new columns in the persistent table are now created and if there are columns missing in the temporary table they won't just get filled.
+    # The only problem could be to have index values not filled. All entries will only be logged.
+    $colsInPersistentButNotTemporary | ForEach {
+        $newColumnName = $_.Name
+        Write-Log -message "WARNING: There is column '$( $newColumnName )' missing in the temporary table for persistent table '$( $f.BaseName )'. This will be ignored."
+    }
+
+    # Import the files temporarily with process id
+    $columnsString = $columnsTemp.Name -join ", "
+    Read-Sqlite -query "INSERT INTO $( $f.BaseName ) ( $( $columnsString ) ) SELECT $( $columnsString ) FROM $( $destination )" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe    
+
+}
+
+# Drop temporary tables
+$filesToImport | ForEach {  
+    $f = $_
+    $destination = "$( $processIdSqliteSafe )__$( $f.BaseName )"
+    Read-Sqlite -query "Drop table $( $destination )" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
+    Write-Log -message "Dropping temporary table '$( $destination )'"
+}  
+
+#>
 
 ################################################
 #
