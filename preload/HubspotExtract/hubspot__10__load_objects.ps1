@@ -168,6 +168,10 @@ if ( $paramsExisting ) {
 $foldersToCheck = @(
     $settings.exportDir
     $settings.backupDir
+    Split-Path -Path $settings.sqliteDb -Parent
+    Split-Path -Path $settings.buildNowFile -Parent
+    Split-Path -Path $settings.sessionFile -Parent
+    Split-Path -Path $settings.hapiKeyFile -Parent
 )
 
 $foldersToCheck | ForEach {
@@ -204,7 +208,7 @@ $smtpcred = New-Object PSCredential $settings.mail.from,$stringSecure
 # HEADERS
 #-----------------------------------------------
 
-$contentType = "application/json"
+$contentType = "application/json" #"application/json; charset=utf-8"
 
 
 ################################################
@@ -463,6 +467,9 @@ New-Item -Path "$( $exportFolder )" -ItemType Directory
 # EXPORT FILES
 #-----------------------------------------------
 
+Write-Log -message "Exporting the data into CSV and creating a folder with the id $( $processId )"
+
+$proceed = $false
 $objectTypesToLoad | ForEach {
 
     $objectType = $_
@@ -470,7 +477,10 @@ $objectTypesToLoad | ForEach {
 
     if ( $objects.$objectType.count -gt 0 ) {
 
-        Write-Log -message "Exporting the data into CSV and creating a folder with the id $( $processId )"
+        Write-Log -message "Exporting the data of object type $( $objectType )"
+
+        # Set proceed to true
+        $proceed = $true
 
         # Export properties table
         $properties.$objectType | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * `
@@ -515,21 +525,26 @@ $lastSessionJson = $lastSession | ConvertTo-Json -Depth 8 # -compress
 $lastSessionJson
 
 # save settings to file
-$lastSessionJson | Set-Content -path "$( $scriptPath )\$( $lastSessionFilename )" -Encoding UTF8
+$lastSessionJson | Set-Content -path "$( $settings.sessionFile )" -Encoding UTF8
 
 Write-Log -message "Saved the current timestamp '$( $currentTimestamp )' for the next run in '$( $scriptPath )\$( $lastSessionFilename )'"
 
-# Exit if there is no new result
-if ( $contacts.count -eq 0 ) {
-    
-    Write-Log -message "No new data -> exit"
-    
-    Exit 0
+
+$objectTypesToLoad | ForEach {
+
+    $objectType = $_
+
+    # Exit if there is no new result
+    if ( $proceed -eq $false ) {
+        
+        Write-Log -message "No new data -> exit"
+        
+        Exit 0
+
+    }
 
 }
 
-
-exit 0
 
 
 ################################################
@@ -540,10 +555,7 @@ exit 0
 
 Write-Log -message "Setting for creating backups $( $settings.backupSqlite )"
 
-if ( $settings.backupSqlite ) {
-    
-    # TODO [ ] put these into settings
-    
+if ( $settings.backupSqlite ) {  
 
     # Create backup subfolder
     $destination = $settings.backupDir
@@ -565,9 +577,11 @@ if ( $settings.backupSqlite ) {
             $source = "$( $source )\*"
         }
 
-        Write-Log -message "Creating backup of $( $source )"    
+        if ( Test-Path -Path $source ) {
+            Write-Log -message "Creating backup of $( $source )"    
 
-        Copy-Item -Path $source -Destination $destinationWithTimestamp -Force -Recurse
+            Copy-Item -Path $source -Destination $destinationWithTimestamp -Force -Recurse
+        }
 
     }
 
@@ -576,102 +590,7 @@ if ( $settings.backupSqlite ) {
 
 ################################################
 #
-# LOAD CSV INTO SQLITE
-#
-################################################
-
-# TODO [ ] make use of transactions for sqlite to get it safe
-
-Write-Log -message "Import data into sqlite '$( $settings.sqliteDb )'"    
-
-# Settings for sqlite
-$sqliteExe = $libExecutables.Where({$_.name -eq "sqlite3.exe"}).FullName
-$processIdSqliteSafe = "temp__$( $processId.Guid.Replace('-','') )" # sqlite table names are not allowed to contain dashes or begin with numbers
-$filesToImport = Get-ChildItem -Path $settings.exportDir -Include $settings.filterForSqliteImport -Recurse
-
-# Create database if not existing
-# In sqlite the database gets automatically created if it does not exist
-
-# Import the files temporarily with process id
-$filesToImport | ForEach {
-    
-    $f = $_
-    $destination = "$( $processIdSqliteSafe )__$( $f.BaseName )"
-
-    # Import data
-    ImportCsv-ToSqlite -sourceCsv $f.FullName -destinationTable $destination -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
-
-    # Create persistent tables if not existing
-    $tableCreationStatement  = ( Read-Sqlite -query ".schema $( $destination )" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe -convertCsv $false ) -replace $destination, "IF NOT EXISTS $( $f.BaseName )"
-    $tableCreation = Read-Sqlite -query $tableCreationStatement -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe -convertCsv $false
-
-    Write-Log -message "Import temporary table '$( $destination )' and create persistent table if not exists"    
-
-}
-
-# Import data from temporary tables to persistent tables
-$filesToImport | ForEach {
-    
-    $f = $_
-    $destination = "$( $processIdSqliteSafe )__$( $f.BaseName )"
-
-    Write-Log -message "Import temporary table '$( $destination )' into persistent table '$( $f.BaseName )'"    
-
-
-    # Column names of temporary table    
-    $columnsTemp = Read-Sqlite -query "PRAGMA table_info($( $destination ))" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
-
-    # Column names of persistent table
-    $columnsPersistent = Read-Sqlite -query "PRAGMA table_info($( $f.BaseName ))" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
-    $columnsPersistensString = $columnsPersistent.Name -join ", "
-
-    # Compare columns
-    $differences = Compare-Object -ReferenceObject $columnsPersistent -DifferenceObject $columnsTemp -Property Name
-    $colsInPersistentButNotTemporary = $differences | where { $_.SideIndicator -eq "<=" }
-    $colsInTemporaryButNotPersistent = $differences | where { $_.SideIndicator -eq "=>" }
-
-    # Add new columns in persistent table that are only present in temporary tables
-    if ( $colsInTemporaryButNotPersistent.count -gt 0 ) {
-        Send-MailMessage -SmtpServer $settings.mailSettings.smtpServer -From $settings.mailSettings.from -To $settings.mailSettings.to -Port $settings.mailSettings.port -UseSsl -Credential $smtpcred
-                 -Body "Creating new columns $( $colsInTemporaryButNotPersistent.Name -join ", " ) in persistent table $( $f.BaseName ). Please have a look if those should be added in Apteco Designer." `
-                 -Subject "[CRM/Hubspot] Creating new columns in persistent table $( $f.BaseName )"
-    }
-    $colsInTemporaryButNotPersistent | ForEach {
-        $newColumnName = $_.Name
-        Write-Log -message "WARNING: Creating a new column '$( $newColumnName )' in table '$( $f.BaseName )'"
-        Read-Sqlite -query "ALTER TABLE $( $f.BaseName ) ADD $( $newColumnName ) TEXT" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe    
-    }
-
-    # Add new columns in temporary table
-    # There is no need to do that because the new columns in the persistent table are now created and if there are columns missing in the temporary table they won't just get filled.
-    # The only problem could be to have index values not filled. All entries will only be logged.
-    $colsInPersistentButNotTemporary | ForEach {
-        $newColumnName = $_.Name
-        Write-Log -message "WARNING: There is column '$( $newColumnName )' missing in the temporary table for persistent table '$( $f.BaseName )'. This will be ignored."
-    }
-
-    # Import the files temporarily with process id
-    $columnsString = $columnsTemp.Name -join ", "
-    Read-Sqlite -query "INSERT INTO $( $f.BaseName ) ( $( $columnsString ) ) SELECT $( $columnsString ) FROM $( $destination )" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe    
-
-}
-
-# Drop temporary tables
-$filesToImport | ForEach {  
-    $f = $_
-    $destination = "$( $processIdSqliteSafe )__$( $f.BaseName )"
-    Read-Sqlite -query "Drop table $( $destination )" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
-    Write-Log -message "Dropping temporary table '$( $destination )'"
-}  
-
-
-
-
-
-
-################################################
-#
-# LOAD CSV INTO SQLITE (CLEVERREACH)
+# LOAD CSV INTO SQLITE (EXTEND TABLES AND INFORM OF NEW COLUMNS)
 #
 ################################################
 <#
@@ -761,6 +680,106 @@ $filesToImport | ForEach {
 
 #>
 
+
+
+
+################################################
+#
+# LOAD CSV INTO SQLITE (LOAD FILES AS IS -> TRANSFORM THE DATA TO KEY/VALUE BEFORE)
+#
+################################################
+
+# TODO [ ] make use of transactions for sqlite to get it safe
+
+Write-Log -message "Import data into sqlite '$( $settings.sqliteDb )'"    
+$newDatabase = Test-Path -Path $settings.sqliteDb
+
+# Settings for sqlite
+$sqliteExe = $libExecutables.Where({$_.name -eq "sqlite3.exe"}).FullName
+$processIdSqliteSafe = "temp__$( $processId.Guid.Replace('-','') )" # sqlite table names are not allowed to contain dashes or begin with numbers
+$filesToImport = Get-ChildItem -Path $exportFolder -Include $settings.filterForSqliteImport -Recurse
+
+# Create database if not existing
+# In sqlite the database gets automatically created if it does not exist
+
+# Import the files temporarily with process id
+$filesToImport | ForEach {
+    
+    $f = $_
+    $destination = "$( $processIdSqliteSafe )__$( $f.BaseName )"
+
+    # Import data
+    ImportCsv-ToSqlite -sourceCsv $f.FullName -destinationTable $destination -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
+
+    # Create persistent tables if not existing
+    $tableCreationStatement  = ( Read-Sqlite -query ".schema $( $destination )" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe -convertCsv $false ) -replace $destination, "IF NOT EXISTS $( $f.BaseName )"
+    $tableCreation = Read-Sqlite -query $tableCreationStatement -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe -convertCsv $false
+
+    Write-Log -message "Import temporary table '$( $destination )' and create persistent table if not exists"    
+
+}
+
+
+# Import data from temporary tables to persistent tables
+$filesToImport | ForEach {
+    
+    $f = $_
+    $destination = "$( $processIdSqliteSafe )__$( $f.BaseName )"
+
+    Write-Log -message "Import temporary table '$( $destination )' into persistent table '$( $f.BaseName )'"    
+
+    # Check columns if database is already existing
+    #if ( !$newDatabase ) {
+
+        # Column names of temporary table    
+        $columnsTemp = Read-Sqlite -query "PRAGMA table_info($( $destination ))" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
+
+        # Column names of persistent table
+        $columnsPersistent = Read-Sqlite -query "PRAGMA table_info($( $f.BaseName ))" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
+        $columnsPersistensString = $columnsPersistent.Name -join ", "
+
+        # Compare columns
+        $differences = Compare-Object -ReferenceObject $columnsPersistent -DifferenceObject $columnsTemp -Property Name
+        $colsInPersistentButNotTemporary = $differences | where { $_.SideIndicator -eq "<=" }
+        $colsInTemporaryButNotPersistent = $differences | where { $_.SideIndicator -eq "=>" }
+
+        # Add new columns in persistent table that are only present in temporary tables
+        if ( $colsInTemporaryButNotPersistent.count -gt 0 ) {
+            Send-MailMessage -SmtpServer $settings.mailSettings.smtpServer -From $settings.mailSettings.from -To $settings.mailSettings.to -Port $settings.mailSettings.port -UseSsl -Credential $smtpcred
+                    -Body "Creating new columns $( $colsInTemporaryButNotPersistent.Name -join ", " ) in persistent table $( $f.BaseName ). Please have a look if those should be added in Apteco Designer." `
+                    -Subject "[CRM/Hubspot] Creating new columns in persistent table $( $f.BaseName )"
+        }
+        $colsInTemporaryButNotPersistent | ForEach {
+            $newColumnName = $_.Name
+            Write-Log -message "WARNING: Creating a new column '$( $newColumnName )' in table '$( $f.BaseName )'"
+            Read-Sqlite -query "ALTER TABLE $( $f.BaseName ) ADD $( $newColumnName ) TEXT" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe    
+        }
+
+        # Add new columns in temporary table
+        # There is no need to do that because the new columns in the persistent table are now created and if there are columns missing in the temporary table they won't just get filled.
+        # The only problem could be to have index values not filled. All entries will only be logged.
+        $colsInPersistentButNotTemporary | ForEach {
+            $newColumnName = $_.Name
+            Write-Log -message "WARNING: There is column '$( $newColumnName )' missing in the temporary table for persistent table '$( $f.BaseName )'. This will be ignored."
+        }
+    #}
+
+    # Import the files temporarily with process id
+    $columnsString = $columnsTemp.Name -join ", "
+    Read-Sqlite -query "INSERT INTO $( $f.BaseName ) ( $( $columnsString ) ) SELECT $( $columnsString ) FROM $( $destination )" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe    
+
+}
+
+# Drop temporary tables
+$filesToImport | ForEach {  
+    $f = $_
+    $destination = "$( $processIdSqliteSafe )__$( $f.BaseName )"
+    Read-Sqlite -query "Drop table $( $destination )" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
+    Write-Log -message "Dropping temporary table '$( $destination )'"
+}  
+
+
+
 ################################################
 #
 # CREATE SUCCESS FILE
@@ -779,5 +798,6 @@ if ( $settings.createBuildNow ) {
 #
 ################################################
 
+exit 0
 
 & "C:\Program Files\Apteco\FastStats Designer\DesignerConsole.exe" "D:\Apteco\Build\Hubspot\designs\hubspot.xml" /load

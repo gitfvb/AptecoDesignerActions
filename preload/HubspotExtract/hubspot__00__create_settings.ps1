@@ -96,7 +96,7 @@ $settings = [PSCustomObject]@{
 
     # General
     base = "https://api.hubapi.com/"
-    logfile="$( $scriptPath )\hubspot.log"               # path and name of log file
+    logfile="$( $scriptPath )\hubspot.log"               # path and name of log file, please make sure the path exists
     changeTLS = $true                                   # should tls be changed on the system?
     providername = "HBSPT"                                # identifier for this custom integration, this is used for the response allocation   
 
@@ -112,6 +112,7 @@ $settings = [PSCustomObject]@{
     backupDir = "$( $scriptPath )\backup"
 
     # sqlite settings
+    sqliteDb = "$( $scriptPath )\data\hubspot.sqlite" # TODO [ ] replace the first part of the path with a designer environment variable
     sqliteImportFilter = @("*.csv";"*.txt";"*.tab")
     backupSqlite = $true # $true|$false if you wish to create backups of the sqlite database
 
