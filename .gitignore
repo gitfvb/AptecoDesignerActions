@@ -3,3 +3,4 @@
 *.debug
 *.key
 *.csv
+*.sqlite
