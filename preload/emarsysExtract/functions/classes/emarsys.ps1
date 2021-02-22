@@ -104,11 +104,11 @@ class Emarsys : DCSP {
     [String]$providerName = "emarsys"
     static [bool]$allowNewFieldCreation = $true
 
-    #[PSCustomObject]$defaultParams
+    [PSCustomObject]$defaultParams
 
 
     #-----------------------------------------------
-    # CONSTRUCTORS
+    # PUBLIC CONSTRUCTORS
     #-----------------------------------------------
 
 
@@ -117,43 +117,64 @@ class Emarsys : DCSP {
         $this.init()
     } 
 
-    Emarsys ( [String]$username, [String]$secret ) {
-        $stringSecure = ConvertTo-SecureString -String ( Get-SecureToPlaintext $secret ) -AsPlainText -Force
-        $this.cred = [pscredential]::new( $username, $stringSecure )
-        $this.init()
+    Emarsys ( [String]$username, [String]$secret ) {        
+        $this.init( $username, $secret )
     }
 
     Emarsys ( [String]$username, [String]$secret, [String]$baseUrl ) {
-        $stringSecure = ConvertTo-SecureString -String ( Get-SecureToPlaintext $secret ) -AsPlainText -Force
-        $this.cred = [pscredential]::new( $username, $stringSecure )
-        $this.baseUrl = $baseUrl
-        $this.init()
+        $this.init( $username, $secret, $baseUrl)
     }
 
     Emarsys ( [pscredential]$cred ) {
+        $this.init( $cred )
+    }
+
+    Emarsys ( [pscredential]$cred, [String]$baseUrl ) {
+        $this.init( $cred, $baseUrl )
+    }
+
+    #-----------------------------------------------
+    # HIDDEN CONSTRUCTORS - CHAINING
+    #-----------------------------------------------
+
+    hidden [void] init () {
+
+        $this.defaultParams = @{
+            cred = $this.cred
+        }
+
+    }
+
+    hidden [void] init ( [String]$username, [String]$secret ) {
+        $stringSecure = ConvertTo-SecureString -String ( Get-SecureToPlaintext $secret ) -AsPlainText -Force
+        $this.cred = [pscredential]::new( $username, $stringSecure )
+        $this.init()
+    }
+
+    hidden [void] init ( [String]$username, [String]$secret, [String]$baseUrl ) {
+        $this.baseUrl = $baseUrl
+        $this.init( $username, $secret )
+    }
+
+    hidden [void] init ( [pscredential]$cred ) {
         $this.cred = $cred
         $this.init()
     }
 
-    Emarsys ( [pscredential]$cred, [String]$baseUrl ) {
-        $this.cred = $cred
+    hidden [void] init ( [pscredential]$cred, [String]$baseUrl ) {
         $this.baseUrl = $baseUrl
-        $this.init()
+        $this.init( $cred )
     }
+
 
 
     #-----------------------------------------------
     # METHODS
     #-----------------------------------------------
 
-    hidden [void] init () {
-
-    }
-
     [PSCustomObject] getSettings () {
 
-        $params = @{
-            cred = $this.cred
+        $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)settings"
         }
 
@@ -174,8 +195,7 @@ class Emarsys : DCSP {
         $bodyJson = ConvertTo-Json -InputObject $body -Depth 20
 
         # Call emarsys
-        $params = @{
-            cred = $this.cred
+        $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)field"
             method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
             $body = $bodyJson
@@ -189,10 +209,15 @@ class Emarsys : DCSP {
     }
 
     [PSCustomObject] getFields () {
+        return getFields -loadDetails $true
+    }
+
+
+
+    [PSCustomObject] getFields ([bool]$loadDetails) {
 
         # Call emarsys
-        $params = @{
-            cred = $this.cred
+        $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)field"
         }
         $res = Invoke-emarsys @params
@@ -206,24 +231,28 @@ class Emarsys : DCSP {
             
             $choice = [System.Collections.ArrayList]@()
 
-            # list fields choices
-            if ( $f.application_type -eq "singlechoice") {
-                $params = @{
-                    cred = $this.cred
-                    uri = "$( $this.baseUrl)field/$( $f.id )/choice"
-                }
-                $choices = Invoke-emarsys @params
-                $choices | ForEach {
-                    $c = $_
-                    [void]$choice.Add([DCSPFieldChoice]@{
-                        "id" = $c.id
-                        "label" = $c.choice
-                    })
-                }
-                # TODO [ ] check bit_position in return data
-            }
+            if ( $loadDetails ) {
 
-            # TODO [ ] check multiple choice which is called with /choices
+                # list fields choices
+                if ( $f.application_type -eq "singlechoice") {
+                    $params = @{
+                        cred = $this.cred
+                        uri = "$( $this.baseUrl)field/$( $f.id )/choice"
+                    }
+                    $choices = Invoke-emarsys @params
+                    $choices | ForEach {
+                        $c = $_
+                        [void]$choice.Add([DCSPFieldChoice]@{
+                            "id" = $c.id
+                            "label" = $c.choice
+                        })
+                    }
+                    # TODO [ ] check bit_position in return data
+                }
+
+                # TODO [ ] check multiple choice which is called with /choices
+                
+            }
 
             $fields.Add([EmarsysField]@{
                 "emarsys" = $this
@@ -252,8 +281,7 @@ class Emarsys : DCSP {
         # TODO  [ ] implement as classes with create, rename, delete, count, list contacts, list contacts data, add contacts, lookup(?)
 
         # Call emarsys
-        $params = @{
-            cred = $this.cred
+        $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)contactlist"
         }
         $res = Invoke-emarsys @params
@@ -266,8 +294,7 @@ class Emarsys : DCSP {
         # TODO  [ ] implement as classes 
 
         # Call emarsys
-        $params = @{
-            cred = $this.cred
+        $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)source"
         }
         $res = Invoke-emarsys @params
@@ -281,8 +308,7 @@ class Emarsys : DCSP {
         # TODO  [ ] implement as classes with the toString-function, list tracked links, list sections, preview
 
         # Call emarsys
-        $params = @{
-            cred = $this.cred
+        $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)email"
         }
         $res = Invoke-emarsys @params
@@ -297,8 +323,7 @@ class Emarsys : DCSP {
         # TODO  [ ] implement as classes 
 
         # Call emarsys
-        $params = @{
-            cred = $this.cred
+        $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)condition"
         }
         $res = Invoke-emarsys @params
@@ -311,8 +336,7 @@ class Emarsys : DCSP {
         # TODO  [ ] implement as classes 
 
         # Call emarsys
-        $params = @{
-            cred = $this.cred
+        $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)email/templates"
         }
         $res = Invoke-emarsys @params
@@ -325,8 +349,7 @@ class Emarsys : DCSP {
         # TODO  [ ] implement as classes 
 
         # Call emarsys
-        $params = @{
-            cred = $this.cred
+        $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)settings/linkcategories"
         }
         $res = Invoke-emarsys @params
@@ -339,8 +362,7 @@ class Emarsys : DCSP {
         # TODO  [ ] implement as classes 
 
         # Call emarsys
-        $params = @{
-            cred = $this.cred
+        $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)event"
         }
         $res = Invoke-emarsys @params
@@ -353,8 +375,7 @@ class Emarsys : DCSP {
         # TODO  [ ] implement as classes 
 
         # Call emarsys
-        $params = @{
-            cred = $this.cred
+        $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)ac/programs"
         }
         $res = Invoke-emarsys @params
@@ -367,8 +388,7 @@ class Emarsys : DCSP {
         # TODO  [ ] implement as classes 
 
         # Call emarsys
-        $params = @{
-            cred = $this.cred
+        $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)settings/autoimports"
         }
         $res = Invoke-emarsys @params
@@ -393,8 +413,7 @@ class Emarsys : DCSP {
         }
 
         # Call emarsys
-        $params = @{
-            cred = $this.cred
+        $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)/email/getcontacts"
             method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
 
