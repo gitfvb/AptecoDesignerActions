@@ -165,19 +165,60 @@ if ( $paramsExisting ) {
 
 $stringSecure = ConvertTo-SecureString -String ( Get-SecureToPlaintext $settings.login.secret ) -AsPlainText -Force
 $cred = [pscredential]::new( $settings.login.username, $stringSecure )
+
+# Read static attribute
 [Emarsys]::allowNewFieldCreation
+
+# Create emarsys object
 $emarsys = [Emarsys]::new($cred,$settings.base)
+
+# Read settings
 $emarsys.getSettings()
-$f = $emarsys.getFields()
-$f | Out-GridView
 
 exit 0
-$emarsys.getEmailCampaigns()
+
+# Read fields without details
+$f = $emarsys.getFields($false)
+$f | ft
+
+# Read fields with details
+$f = $emarsys.getFields($true)
+$f | Out-GridView
+
+# Test the change of the concat character for lists and messages
+$settings.nameConcatChar = " | "
+
+# Load lists
+$lists = $emarsys.getLists()
+
+# Show lists blank
+$lists | ft
+
+# Show lists with toString
+$lists | Select *, @{name="toString";expression={ $_.toString() }} -exclude raw | ft
+
+# Show lists with counts
+( $lists | Select *,  @{name="count";expression={ $_.count() }} -exclude raw )| ft
+
+# Get Mailings
+$mailings = $emarsys.getEmailCampaigns()
+
+# Show mailings
+$mailings | select * -exclude raw | ft
+
+# Get Mailings with toString
+$mailings | Select id, name, @{name="toString";expression={ $_.toString() }} | ft
+
+
+exit 0
+
+# Other calls
+
+
+$emarsys.getEmailTemplates() 
 $emarsys.getAutomationCenterPrograms()
-$emarsys.getEmailTemplates()
 $emarsys.getExternalEvents()
 $emarsys.getLinkCategories()
-$emarsys.getLists()
 $emarsys.getSources()
 $emarsys.getAutoImportProfiles()
 $emarsys.getConditionalTextRules()
@@ -185,28 +226,6 @@ $emarsys.getConditionalTextRules()
 
 #Invoke-emarsys -uri "$( $settings.base )settings" -cred $cred
 
-
-
-#-----------------------------------------------
-# FIELDS
-#-----------------------------------------------
-
-$url = "$( $settings.base )field/translate/de"
-Invoke-emarsys -uri "$( $settings.base )field/translate/de"
-
-
-$fields = Invoke-RestMethod -uri $url -Method Get -Headers $header -ContentType $contentType -Verbose
-$fields.data | Out-GridView
-
-exit 0
-
-#-----------------------------------------------
-# CAMPAIGNS
-#-----------------------------------------------
-
-$url = "https://trunk-int.s.emarsys.com/api/v2/email"
-$campaigns = Invoke-RestMethod -uri $url -Method Get -Headers $header -Verbose
-$selectedCampaigns = $campaigns.data | Out-GridView -PassThru
 
 
 #-----------------------------------------------
@@ -221,51 +240,4 @@ $selectedCampaigns | ForEach {
 }
 
 exit 0
-
-#-----------------------------------------------
-# LOAD TEMPLATES
-#-----------------------------------------------
-
-$templates = Get-eLetterTemplates
-
-
-#-----------------------------------------------
-# BUILD MAILING OBJECTS
-#-----------------------------------------------
-
-$mailings = @()
-$templates | foreach {
-
-    # Load data
-    $template = $_
-    #$id = Get-StringHash -inputString $template.url -hashName "MD5" #-uppercase
-
-    # Create mailing objects
-    $mailings += [Mailing]@{mailingId=$template.hashid;mailingName=$template.name}
-
-}
-
-$messages = $mailings | Select @{name="id";expression={ $_.mailingId }}, @{name="name";expression={ $_.toString() }}
-
-
-#-----------------------------------------------
-# GET MAILINGS DETAILS
-#-----------------------------------------------
-<#
-# The way without classes
-$messages = $result | where { $_.state -in $settings.mailings.states } | Select-Object @{name="id";expression={ $_.'_id' }},
-                                            @{name="name";expression={ "$( $_.'_id' )$( $settings.nameConcatChar )$( $_.name )"}} #$( if ($_.Description -ne '') { $settings.nameConcatChar } )$( $_.Description )" }}
-
-#>
-
-
-################################################
-#
-# RETURN
-#
-################################################
-
-# real messages
-return $messages
-
 

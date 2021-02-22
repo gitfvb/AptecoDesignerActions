@@ -143,6 +143,106 @@ class DCSPList {
 }
 
 
+#-----------------------------------------------
+# MAILINGS - GENERIC
+#-----------------------------------------------
+
+# TODO [ ] think again about this class
+
+class DCSPMailing {
+
+    #-----------------------------------------------
+    # PROPERTIES (can be public by default, static or hidden)
+    #-----------------------------------------------
+
+    [String]$id
+    [String]$name = ""
+    [DateTime]$created
+
+    hidden [String] $nameConcatChar = " / "
+    #hidden [String]$type = " / "
+
+
+    #-----------------------------------------------
+    # PUBLIC CONSTRUCTORS
+    #-----------------------------------------------
+
+    # empty default constructor needed to support hashtable constructor
+    DCSPMailing () {
+
+        $this.init()
+
+    } 
+    
+
+    DCSPMailing ( [String]$inputString ) {        
+        
+        # If we have a nameconcat char in the settings variable, just use it
+        $this.init($inputString)
+
+    }
+
+
+    #-----------------------------------------------
+    # HIDDEN CONSTRUCTORS - CHAINING
+    #-----------------------------------------------
+
+
+    [void] init () {
+        # If we have a nameconcat char in the settings variable, just use it
+        if ( $script:settings.nameConcatChar ) {
+            $this.nameConcatChar = $script:settings.nameConcatChar
+        }
+    }
+
+    # Used for a minimal input
+    [void] init ([String]$inputString ) {
+
+        $this.init()
+
+        $stringParts = $inputString -split [regex]::Escape($this.nameConcatChar.trim()),2
+        $this.id = $stringParts[0].trim()
+        $this.name = $stringParts[1].trim()
+
+    }
+
+
+    #-----------------------------------------------
+    # METHODS
+    #-----------------------------------------------
+
+    [String] toString()
+    {
+        return $this.id, $this.name -join $this.nameConcatChar
+    }    
+
+}
+
+
+#-----------------------------------------------
+# MAILINGS - EMAIL
+#-----------------------------------------------
+
+enum DCSPMailingsEmailContentTypes {
+    html = 10
+    text = 20
+}
+
+# Additional properties for email channel
+class DCSPMailingsEmail : DCSPMailing {
+
+    #-----------------------------------------------
+    # PROPERTIES (can be public by default, static or hidden)
+    #-----------------------------------------------
+
+    [String]$subject
+    [String]$fromEmail
+    [String]$fromName
+    [DCSPMailingsEmailContentTypes]$contentType
+
+}
+
+
 ################################################
 #
 # INHERITED CLASSES AND ENUMS
@@ -202,6 +302,8 @@ class EmarsysList : DCSPList {
 
     [int] $type
     hidden [Emarsys]$emarsys
+    [PSCustomObject]$raw        # the raw source object for this one 
+
 
     #-----------------------------------------------
     # PUBLIC CONSTRUCTORS
@@ -210,32 +312,10 @@ class EmarsysList : DCSPList {
     # empty default constructor needed to support hashtable constructor
     EmarsysList () {
 
-        $this.init()
+        # TODO [ ] needed?
+        #$this.init()
 
     } 
-
-    # Just to explain -> this constructor accepts input arguments, calls the base constructor with 2 of those arguments and fills the class instance with own properties
-    <#
-    EmarsysList () : base( $id, $name, $created, $updated) {
-        $this.id = $mailingId
-        $this.name = $mailingName
-        #$this.campaignState = $campaignState
-    }
-
-    EmarsysList ( [String]$inputString ) {        
-        
-        # If we have a nameconcat char in the settings variable, just use it
-        $this.init($inputString)
-
-    }
-    #>
-
-    #-----------------------------------------------
-    # HIDDEN CONSTRUCTORS - CHAINING
-    #-----------------------------------------------
-
-
-
 
     #-----------------------------------------------
     # METHODS
@@ -252,6 +332,37 @@ class EmarsysList : DCSPList {
         
         return [int]$res
     }    
+
+}
+
+class EmarsysMailing : DCSPMailingsEmail {
+
+
+    #-----------------------------------------------
+    # PROPERTIES (can be public by default, static or hidden)
+    #-----------------------------------------------
+
+    hidden [Emarsys]$emarsys
+    [PSCustomObject]$raw        # the raw source object for this one 
+    [String]$language
+
+
+    #-----------------------------------------------
+    # PUBLIC CONSTRUCTORS
+    #-----------------------------------------------
+
+    # empty default constructor needed to support hashtable constructor
+    EmarsysMailing () {
+
+        # TODO [ ] needed?
+        #$this.init()
+
+    } 
+
+    #-----------------------------------------------
+    # METHODS
+    #-----------------------------------------------
+
 
 }
 
@@ -475,6 +586,7 @@ class Emarsys : DCSP {
                 "name" = $l.name
                 "created" = $l.created
                 "type" = $l.type
+                "raw" = $l
             })
 
         }
@@ -496,7 +608,7 @@ class Emarsys : DCSP {
 
     }
 
-    [PSCustomObject] getEmailCampaigns () {
+    [EmarsysMailing[]] getEmailCampaigns () {
 
         # https://dev.emarsys.com/v2/contact-lists/count-contacts-in-a-contact-list
         # TODO  [ ] implement as classes with the toString-function, list tracked links, list sections, preview
@@ -506,7 +618,33 @@ class Emarsys : DCSP {
             uri = "$( $this.baseUrl)email"
         }
         $res = Invoke-emarsys @params
-        return $res
+
+        # Transform result to objects
+        $campaigns = [System.Collections.ArrayList]@()
+        $res | ForEach {
+
+            $c = $_
+            
+            [void]$campaigns.Add([EmarsysMailing]@{
+                
+                "id" = $c.id
+                "name" = $c.name
+                "created" = $c.created
+
+                "subject" = $c.subject
+                "fromEmail" = $c.fromemail
+                "fromName" = $c.fromname
+                "contentType" = [DCSPMailingsEmailContentTypes]::($c."content_type")
+
+                "language" = $c.language
+                "emarsys" = $this
+                "raw" = $c
+                
+            })
+
+        }
+
+        return $campaigns
 
     }
 
