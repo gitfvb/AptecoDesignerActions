@@ -1,12 +1,26 @@
 
+################################################
+#
+# GENERIC CLASSES AND ENUMS
+#
+################################################
+
+
+#-----------------------------------------------
+# SCOPE
+#-----------------------------------------------
 
 enum DSCPScope {
     Global = 0          # global
-    Local = 1           # list/loca
+    Local = 1           # list/local
     Transactional = 2   # Transactional
 }
 
-# DigitalChannelServiceProvider
+
+#-----------------------------------------------
+# DIGITAL CHANNEL SERVICE PROVIDER
+#-----------------------------------------------
+
 class DCSP {
 
     [String]$providerName
@@ -14,6 +28,10 @@ class DCSP {
 
 }
 
+
+#-----------------------------------------------
+# FIELDS
+#-----------------------------------------------
 
 class DCSPField {
 
@@ -48,9 +66,104 @@ class DCSPFieldChoice {
 }
 
 
+#-----------------------------------------------
+# LISTS
+#-----------------------------------------------
+
+# TODO [ ] think again about this class
+
+class DCSPList {
+
+    #-----------------------------------------------
+    # PROPERTIES (can be public by default, static or hidden)
+    #-----------------------------------------------
+
+    [String]$id
+    [String]$name = ""
+    [DateTime]$created
+    [DateTime]$updated
+
+    hidden [String] $nameConcatChar = " / "
+    #hidden [String]$type = " / "
 
 
+    #-----------------------------------------------
+    # PUBLIC CONSTRUCTORS
+    #-----------------------------------------------
 
+    # empty default constructor needed to support hashtable constructor
+    DCSPList () {
+
+        $this.init()
+
+    } 
+    
+
+    DCSPList ( [String]$inputString ) {        
+        
+        # If we have a nameconcat char in the settings variable, just use it
+        $this.init($inputString)
+
+    }
+
+
+    #-----------------------------------------------
+    # HIDDEN CONSTRUCTORS - CHAINING
+    #-----------------------------------------------
+
+
+    [void] init () {
+        # If we have a nameconcat char in the settings variable, just use it
+        if ( $script:settings.nameConcatChar ) {
+            $this.nameConcatChar = $script:settings.nameConcatChar
+        }
+    }
+
+    # Used for a minimal input
+    [void] init ([String]$inputString ) {
+
+        $this.init()
+
+        $stringParts = $inputString -split [regex]::Escape($this.nameConcatChar.trim()),2
+        $this.id = $stringParts[0].trim()
+        $this.name = $stringParts[1].trim()
+
+    }
+
+
+    #-----------------------------------------------
+    # METHODS
+    #-----------------------------------------------
+
+    [String] toString()
+    {
+        return $this.id, $this.name -join $this.nameConcatChar
+    }    
+
+}
+
+
+################################################
+#
+# INHERITED CLASSES AND ENUMS
+#
+################################################
+
+
+#-----------------------------------------------
+# EMARSYS FIELDS
+#-----------------------------------------------
+
+enum EmarsysFieldApplicationTypes {
+    shorttext = 0
+    longtext = 1
+    largetext = 2
+    date = 3
+    url = 4
+    numeric = 5
+}
+
+# TODO [ ] implement language code for fields
 
 class EmarsysField : DCSPField {
 
@@ -76,16 +189,79 @@ class EmarsysField : DCSPField {
 
 }
 
-enum EmarsysFieldApplicationTypes {
-    shorttext = 0
-    longtext = 1
-    largetext = 2
-    date = 3
-    url = 4
-    numeric = 5
+
+#-----------------------------------------------
+# EMARSYS LISTS
+#-----------------------------------------------
+
+class EmarsysList : DCSPList {
+
+    #-----------------------------------------------
+    # PROPERTIES (can be public by default, static or hidden)
+    #-----------------------------------------------
+
+    [int] $type
+    hidden [Emarsys]$emarsys
+
+    #-----------------------------------------------
+    # PUBLIC CONSTRUCTORS
+    #-----------------------------------------------
+
+    # empty default constructor needed to support hashtable constructor
+    EmarsysList () {
+
+        $this.init()
+
+    } 
+
+    # Just to explain -> this constructor accepts input arguments, calls the base constructor with 2 of those arguments and fills the class instance with own properties
+    <#
+    EmarsysList () : base( $id, $name, $created, $updated) {
+        $this.id = $mailingId
+        $this.name = $mailingName
+        #$this.campaignState = $campaignState
+    }
+
+    EmarsysList ( [String]$inputString ) {        
+        
+        # If we have a nameconcat char in the settings variable, just use it
+        $this.init($inputString)
+
+    }
+    #>
+
+    #-----------------------------------------------
+    # HIDDEN CONSTRUCTORS - CHAINING
+    #-----------------------------------------------
+
+
+
+
+    #-----------------------------------------------
+    # METHODS
+    #-----------------------------------------------
+
+    # Returns the number of contacts in a contact list.
+    [String] count() {
+
+        # Call emarsys
+        $params = $this.emarsys.defaultParams + @{
+            uri = "$( $this.emarsys.baseUrl)contactlist/$( $this.id )/count"
+        }
+        [int]$res = Invoke-emarsys @params
+        
+        return [int]$res
+    }    
+
 }
 
-# TODO [ ] implement language code for fields
+
+################################################
+#
+# MAIN CLASS
+#
+################################################
+
 
 class Emarsys : DCSP {
 
@@ -214,7 +390,7 @@ class Emarsys : DCSP {
 
 
 
-    [PSCustomObject] getFields ([bool]$loadDetails) {
+    [EmarsysField[]] getFields ([bool]$loadDetails) {
 
         # Call emarsys
         $params = $this.defaultParams + @{
@@ -275,7 +451,7 @@ class Emarsys : DCSP {
                
     }
 
-    [PSCustomObject] getLists () {
+    [EmarsysList[]] getLists () {
 
         # https://dev.emarsys.com/v2/contact-lists/count-contacts-in-a-contact-list
         # TODO  [ ] implement as classes with create, rename, delete, count, list contacts, list contacts data, add contacts, lookup(?)
@@ -285,7 +461,25 @@ class Emarsys : DCSP {
             uri = "$( $this.baseUrl)contactlist"
         }
         $res = Invoke-emarsys @params
-        return $res
+
+
+        # Transform result to objects
+        $lists = [System.Collections.ArrayList]@()
+        $res | ForEach {
+
+            $l = $_
+            
+            [void]$lists.Add([EmarsysList]@{
+                "emarsys" = $this
+                "id" = $l.id
+                "name" = $l.name
+                "created" = $l.created
+                "type" = $l.type
+            })
+
+        }
+
+        return $lists
 
     }
 
@@ -436,6 +630,11 @@ class Emarsys : DCSP {
 }
 
 
+################################################
+#
+# OTHER FUNCTIONS
+#
+################################################
 
 function Invoke-emarsys {
 
