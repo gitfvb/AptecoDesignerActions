@@ -268,8 +268,12 @@ enum EmarsysFieldApplicationTypes {
 class EmarsysField : DCSPField {
 
     hidden [Emarsys]$emarsys
+    [bool]$excludeForExport = $false
 
     EmarsysField () {
+        if ( $_.id -in @(27, 28, 29, 32, 33) ) {
+            $this.excludeForExport = $true
+        }
     } 
 
     delete() {
@@ -284,7 +288,6 @@ class EmarsysField : DCSPField {
         }
         $res = Invoke-emarsys @params
         
-
     }
 
 }
@@ -381,6 +384,7 @@ class Emarsys : DCSP {
     #-----------------------------------------------
 
     hidden [pscredential]$cred                 # holds the username and secret
+    hidden [int]$waitSeconds = 10 
     [String]$baseUrl = "https://api.emarsys.net/api/v2/"
     [DSCPScope[]]$supportedScopes = @(
         [DSCPScope]::Global
@@ -428,6 +432,10 @@ class Emarsys : DCSP {
 
         $this.defaultParams = @{
             cred = $this.cred
+        }
+
+        if ( $script:settings.download.waitSecondsLoop ) {
+            $this.waitSeconds = $script:settings.download.waitSecondsLoop
         }
 
     }
@@ -639,7 +647,7 @@ class Emarsys : DCSP {
                 "language" = $c.language
                 "emarsys" = $this
                 "raw" = $c
-                
+
             })
 
         }
@@ -728,42 +736,92 @@ class Emarsys : DCSP {
 
     }
 
-    [PSCustomObject] downloadContactList () {
+    # Download the contacts synchronously
+    [String] downloadContactListSync ( [EmarsysList]$list, [EmarsysField[]]$fields, [String]$outputFolder ) {
 
-        # TODO  [ ] implement as classes 
+        # TODO [ ] implement as classes 
+        # TODO [ ] make delimiter available as enum
+        # TODO [ ] implement language
+
+        $exportFields = $fields | where { $_.excludeForExport -eq $false }
 
         # Create export
         $body = @{
             distribution_method = "local"
-            contactlist = 23
-            contact_fields = @(
-                # field ids -> max 20 columns, exclude of 27, 28, 29, 32 and 33
-            )
+            contactlist = $list.id
+            contact_fields = $exportFields.id # # field ids -> max 20 columns, exclude of 27, 28, 29, 32 and 33
             delimiter = ";" # ,|;
             add_field_names_header = 1
             #language = "de"
         }
 
-        # Call emarsys
+        # Call emarsys to create export job
         $params = $this.defaultParams + @{
-            uri = "$( $this.baseUrl)/email/getcontacts"
+            uri = "$( $this.baseUrl)email/getcontacts"
             method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
-
+            body = ConvertTo-Json -InputObject $body -Depth 20
         }
         $exportId = Invoke-emarsys @params
-        
+
         # Check export status
-        #export/{exportId}
+        $finish = $false
+        $filename = ""
+        Do {
+            Start-Sleep -Seconds $this.waitSeconds
+            $params = $this.defaultParams + @{
+                uri = "$( $this.baseUrl)export/$( $exportId.id )"
+            }
+            $exportStatus = Invoke-emarsys @params
+            if ( $exportStatus.status -eq "done" ) {
+                $finish = $true
+                $filename = $exportStatus.file_name
+            }
+        } Until ( $finish )
 
         # Download file
-        # export/{exportId}/data
+        # TODO [ ] implement offset and limit
+        $offset = 0
+        $limit = 10000000
+        $params = $this.defaultParams + @{
+            uri = "$( $this.baseUrl)export/$( $exportId.id )/data?offset=$( $offset )&limit=$( $limit )"
+            OutFile = "$( $outputFolder )\$( $filename )"
+        }
+        $exportFile = Invoke-emarsys @params
         
-        
-        
-        
-        return $exportId
+        return $params.OutFile
 
     }
+
+    [void] downloadContactListAsync ([EmarsysList]$list, [EmarsysField[]]$fields) {
+        
+        # TODO  [ ] implement asynchronous way with automated updating of export status
+
+    }
+
+    [String] downloadResponses () {
+
+        # TODO [ ] implement the response download
+
+        # https://dev.emarsys.com/v2/contact-and-email-data/export-responses
+        $body = @{
+            distribution_method = "local"
+            time_range = @()
+            contact_fields = @()
+            sources = @()
+            analysis_fields = @()
+
+            # optional
+            email_id = 0
+            contactlist = $list.id
+            delimiter = ";" # ,|;
+            add_field_names_header = 1
+            #language = "de"
+        }
+
+        return ""
+
+    }
+
 
 }
 
@@ -780,9 +838,11 @@ function Invoke-emarsys {
     param (
          [Parameter(Mandatory=$false)][pscredential]$cred                                   # securestring containing username as user and secret as password
         ,[Parameter(Mandatory=$false)][System.Uri]$uri = "https://api.emarsys.net/api/v2/"  # default url to use
-        ,[Parameter(Mandatory=$false)][Microsoft.PowerShell.Commands.WebRequestMethod] $method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Get
+        ,[Parameter(Mandatory=$false)][Microsoft.PowerShell.Commands.WebRequestMethod]$method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Get
+        ,[Parameter(Mandatory=$false)][String]$outFile = ""
+        ,[Parameter(Mandatory=$false)][System.Object]$body = $null
     )
-    
+
     begin {
         
 
@@ -861,22 +921,43 @@ function Invoke-emarsys {
             "Verbose" = $true
         }
 
+        if ( $body -ne $null ) {
+            $params += @{
+                "Body" = $body
+            }
+        }
+
+        if ( $outFile -ne "" ) {
+            $params += @{
+                "OutFile" = $outFile
+            }
+        }
+
         $result = Invoke-RestMethod @params
 
     }
     
     end {
         
+        if ( $outFile -ne "" ) {
 
-        if ( $result.replyCode -eq 0 <# -and $result.replyText -eq "OK" #> ) {
-
-            $result.data
+            $outFile
 
         } else {
-            # Errors see here: https://dev.emarsys.com/v2/response-codes/http-400-errors
-            Write-Log -message "Got back $( $result.replyText ) from call to url $( $uri ), throwing exception"
-            throw [System.IO.InvalidDataException]
-            
+
+            if ( $result.replyCode -eq 0 <# -and $result.replyText -eq "OK" #> ) {
+
+                $result.data
+    
+            } else {
+                # Errors see here: https://dev.emarsys.com/v2/response-codes/http-400-errors
+                Write-Log -message "Got back $( $result.replyText ) from call to url $( $uri ), throwing exception"
+                throw [System.IO.InvalidDataException]
+                
+            }
+    
         }
+
     }
+
 }

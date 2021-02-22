@@ -172,10 +172,34 @@ $cred = [pscredential]::new( $settings.login.username, $stringSecure )
 # Create emarsys object
 $emarsys = [Emarsys]::new($cred,$settings.base)
 
+
+#-----------------------------------------------
+# SETTINGS
+#-----------------------------------------------
+
 # Read settings
 $emarsys.getSettings()
 
+
+#-----------------------------------------------
+# EXPORT
+#-----------------------------------------------
+
+$lists = $emarsys.getLists()
+$selectedlist = ( $lists | Select *,  @{name="count";expression={ $_.count() }} -exclude raw ) | Out-GridView -PassThru | Select -first 1
+$list = $lists | where { $_.id -eq $selectedlist.id }
+$fields = $emarsys.getFields($false) | Out-GridView -PassThru | Select -first 20
+$t = Measure-Command {
+    $emarsys.downloadContactListSync($list,$fields,".")
+}
+"Downloaded in $( $t.TotalSeconds ) seconds"
+
 exit 0
+
+
+#-----------------------------------------------
+# FIELDS
+#-----------------------------------------------
 
 # Read fields without details
 $f = $emarsys.getFields($false)
@@ -184,6 +208,11 @@ $f | ft
 # Read fields with details
 $f = $emarsys.getFields($true)
 $f | Out-GridView
+
+
+#-----------------------------------------------
+# LISTS
+#-----------------------------------------------
 
 # Test the change of the concat character for lists and messages
 $settings.nameConcatChar = " | "
@@ -200,6 +229,11 @@ $lists | Select *, @{name="toString";expression={ $_.toString() }} -exclude raw 
 # Show lists with counts
 ( $lists | Select *,  @{name="count";expression={ $_.count() }} -exclude raw )| ft
 
+
+#-----------------------------------------------
+# MAILINGS
+#-----------------------------------------------
+
 # Get Mailings
 $mailings = $emarsys.getEmailCampaigns()
 
@@ -208,6 +242,7 @@ $mailings | select * -exclude raw | ft
 
 # Get Mailings with toString
 $mailings | Select id, name, @{name="toString";expression={ $_.toString() }} | ft
+
 
 
 exit 0
