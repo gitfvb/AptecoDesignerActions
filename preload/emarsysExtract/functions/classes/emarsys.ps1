@@ -1,3 +1,16 @@
+<#
+# https://www.coolgenerator.com/ascii-text-generator
+$text = @"
+__    __       ___       __       __        ______       _______  __        ______   .______       __       ___      .__   __. 
+|  |  |  |     /   \     |  |     |  |      /  __  \     |   ____||  |      /  __  \  |   _  \     |  |     /   \     |  \ |  | 
+|  |__|  |    /  ^  \    |  |     |  |     |  |  |  |    |  |__   |  |     |  |  |  | |  |_)  |    |  |    /  ^  \    |   \|  | 
+|   __   |   /  /_\  \   |  |     |  |     |  |  |  |    |   __|  |  |     |  |  |  | |      /     |  |   /  /_\  \   |  . `  | 
+|  |  |  |  /  _____  \  |  `----.|  `----.|  `--'  |    |  |     |  `----.|  `--'  | |  |\  \----.|  |  /  _____  \  |  |\   | 
+|__|  |__| /__/     \__\ |_______||_______| \______/     |__|     |_______| \______/  | _| `._____||__| /__/     \__\ |__| \__| 
+"@
+
+$text
+#>
 
 ################################################
 #
@@ -400,6 +413,7 @@ class EmarsysExport {
     hidden [String]$filename
     hidden [String[]]$exportFiles
     hidden [Timers.Timer]$timer
+    [bool] $alreadyDownloaded = $false
 
 
     #-----------------------------------------------
@@ -444,6 +458,10 @@ class EmarsysExport {
     }
 
     [void] autoUpdate() {
+        $this.autoUpdate($false)
+    }
+
+    [void] autoUpdate([bool]$downloadImmediatly) {
 
         # Create a timer object with a specific interval and a starttime
         $this.timer = New-Object -Type Timers.Timer
@@ -451,7 +469,7 @@ class EmarsysExport {
         $timerTimeout = 600 # seconds
 
         # Register an event for every passed interval
-        Register-ObjectEvent -InputObject $this.timer  -EventName "Elapsed" -SourceIdentifier $this.exportId -MessageData @{ timeout=$timerTimeout; emarsysExport = $this } -Action {
+        Register-ObjectEvent -InputObject $this.timer  -EventName "Elapsed" -SourceIdentifier $this.exportId -MessageData @{ timeout=$timerTimeout; emarsysExport = $this ; downloadImmediatly = $downloadImmediatly } -Action {
             
             # Input
             $emarsysExport = $Event.MessageData.emarsysExport
@@ -463,7 +481,13 @@ class EmarsysExport {
             $emarsysExport.updateStatus()
 
             If ($emarsysExport.status -eq "done") {
+
                 $Sender.stop()
+
+                if ($Event.MessageData.downloadImmediatly) {
+                    $emarsysExport.downloadResult()
+                }
+
             }
 
             # Is timeout reached? Do something!            
@@ -482,7 +506,7 @@ class EmarsysExport {
 
     }
 
-    [void] downloadResult([String]$outputFolder) {
+    [void] downloadResult() {
 
         # TODO [ ] unregister timer event, if it exists
 
@@ -496,14 +520,17 @@ class EmarsysExport {
             $rounds = [Math]::Ceiling($listCount/$this.limit)
 
             for ( $i = 0 ; $i -lt $rounds ; $i++ ) {
+                # TODO [ ] it looks like there is a bug in offset and limit, so re-visit this later
                 $offset = $i * $rounds
                 $params = $this.emarsys.defaultParams + @{
                     uri = "$( $this.emarsys.baseUrl )export/$( $this.exportId )/data" #?offset=$( $offset )&limit=$( $this.limit )"
-                    outFile = "$( $outputFolder )\$( $this.filename )"
+                    outFile = "$( $this.outputFolder )\$( $this.filename )"
                 }
                 Invoke-emarsys @params
                 $this.exportFiles += $params.OutFile
             }
+
+            $this.alreadyDownloaded = $true
 
         }
         
@@ -883,7 +910,7 @@ class Emarsys : DCSP {
 
 
 
-    [EmarsysExport[]] downloadContactListSync ( [EmarsysList]$list, [String]$outputFolder ) {
+    [EmarsysExport[]] downloadContactList ( [EmarsysList]$list, [String]$outputFolder ) {
         
         $exportJobs = [System.Collections.ArrayList]@()
 
@@ -900,7 +927,7 @@ class Emarsys : DCSP {
             $start = $i * $maxFields
             $end = ( ( $i + 1 ) * $maxFields ) -1
             $exportFields = $fields[$start..$end]
-            $emarsysExport = $this.downloadContactListSync($list,$exportFields,$outputFolder) 
+            $emarsysExport = $this.downloadContactList($list,$exportFields,$outputFolder) 
             $exportJobs.Add( $emarsysExport )
             #$this.exports += $emarsysExport
         }
@@ -916,7 +943,7 @@ class Emarsys : DCSP {
     }
 
     # Download the contacts synchronously
-    [EmarsysExport] downloadContactListSync ( [EmarsysList]$list, [EmarsysField[]]$fields, [String]$outputFolder ) {
+    [EmarsysExport] downloadContactList ( [EmarsysList]$list, [EmarsysField[]]$fields, [String]$outputFolder ) {
 
         # TODO [ ] implement as classes 
         # TODO [ ] make delimiter available as enum
@@ -947,79 +974,80 @@ class Emarsys : DCSP {
             
             "emarsys" = $this
             "raw" = $exportId
-        
+            
+            "outputFolder" = $outputFolder
             "fields" = $fields
             "list" = $list
         
             "exportId" = $exportId.id
         
-            #[DateTime]$startTime
-            #[DateTime]$endTime
-
         })
 
         $this.exports += $export
 
         return $export
-<#
-        # Check export status
-        $finish = $false
-        $filename = ""
-        Do {
-            Start-Sleep -Seconds $this.waitSeconds
-            $params = $this.defaultParams + @{
-                uri = "$( $this.baseUrl)export/$( $exportId.id )"
-            }
-            $exportStatus = Invoke-emarsys @params
-            if ( $exportStatus.status -eq "done" ) {
-                $finish = $true
-                $filename = $exportStatus.file_name
-            }
-        } Until ( $finish )
-
-        # Download file
-        # TODO [ ] implement offset and limit
-        # TODO [ ] export contains multiple files
-        # TODO [ ] calculate time when finishing export
-        $offset = 0
-        $limit = 10000000
-        $params = $this.defaultParams + @{
-            uri = "$( $this.baseUrl)export/$( $exportId.id )/data?offset=$( $offset )&limit=$( $limit )"
-            OutFile = "$( $outputFolder )\$( $filename )"
-        }
-        $exportFile = Invoke-emarsys @params
-        
-        return $params.OutFile
-#>
     }
 
-    [void] downloadContactListAsync ([EmarsysList]$list, [EmarsysField[]]$fields) {
-        
-        # TODO  [ ] implement asynchronous way with automated updating of export status
 
-    }
-
-    [String] downloadResponses ([EmarsysList]$list) {
+    [EmarsysExport] downloadResponses ([EmarsysList]$list) {
 
         # TODO [ ] implement the response download
 
         # https://dev.emarsys.com/v2/contact-and-email-data/export-responses
         $body = @{
             distribution_method = "local"
-            time_range = @()
-            contact_fields = @()
-            sources = @()
-            analysis_fields = @()
+            time_range = @() #YYYY-MM-DD HH-SS
+            contact_fields = @() # The field identifiers to include in the export.
+            sources = @() # trackable_links, registration_forms, tell_a_friend, contact_us, change_profile, unsubscribe, mail_open, complaint
+            analysis_fields = @() # ->
+
+<#
+Value 	Description
+1 	Campaign title
+2 	Section header
+3 	Section group
+4 	Link title
+5 	URL
+8 	Time
+12 	Campaign identifier
+13 	Version name
+14 	Campaign category
+15 	Link category
+#>
 
             # optional
-            email_id = 0
-            contactlist = $list.id
+            email_id = 0    # The identifier of the email campaign. Returns the contact's responses to the email.
+            contactlist = $list.id # The identifier of the contact list to filter the results.
             delimiter = ";" # ,|;
-            add_field_names_header = 1
+            add_field_names_header = 1 # Determines whether to insert a header row into the CSV file.
             #language = "de"
         }
 
-        return ""
+        # Call emarsys to create export job
+        $params = $this.defaultParams + @{
+            uri = "$( $this.baseUrl )email/getresponses"
+            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            body = ConvertTo-Json -InputObject $body -Depth 20
+        }
+        $exportId = Invoke-emarsys @params    
+
+        # Create the export object now
+        $export = ( [EmarsysExport]@{
+            
+            "emarsys" = $this
+            "raw" = $exportId
+            "outputFolder" = "."
+        
+            #"fields" = $fields
+            "list" = $list
+        
+            "exportId" = $exportId.id
+        
+        })
+
+        $this.exports += $export
+
+        return $export
 
     }
 

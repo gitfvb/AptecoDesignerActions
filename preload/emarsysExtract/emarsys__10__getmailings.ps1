@@ -73,6 +73,7 @@ $libSubfolder = "lib"
 $settingsFilename = "settings.json"
 $moduleName = "EMARSYSMAILINGS"
 $processId = [guid]::NewGuid()
+$timestamp = [datetime]::Now
 
 # Load settings
 $settings = Get-Content -Path "$( $scriptPath )\$( $settingsFilename )" -Encoding UTF8 -Raw | ConvertFrom-Json
@@ -108,14 +109,14 @@ Get-ChildItem -Path ".\$( $functionsSubfolder )" -Recurse -Include @("*.ps1") | 
     . $_.FullName
     "... $( $_.FullName )"
 }
-<#
+
 # Load all exe files in subfolder
 $libExecutables = Get-ChildItem -Path ".\$( $libSubfolder )" -Recurse -Include @("*.exe") 
 $libExecutables | ForEach {
     "... $( $_.FullName )"
     
 }
-
+<#
 # Load dll files in subfolder
 $libExecutables = Get-ChildItem -Path ".\$( $libSubfolder )" -Recurse -Include @("*.dll") 
 $libExecutables | ForEach {
@@ -154,12 +155,9 @@ if ( $paramsExisting ) {
 
 ################################################
 #
-# PROGRAM
+# HANDLING EMARSYS
 #
 ################################################
-
-
-
 
 #$settingsLoad = Invoke-RestMethod @params
 
@@ -172,6 +170,8 @@ $cred = [pscredential]::new( $settings.login.username, $stringSecure )
 # Create emarsys object
 $emarsys = [Emarsys]::new($cred,$settings.base)
 
+[uint64]$currentTimestamp = Get-Unixtime -inMilliseconds -timestamp $timestamp
+
 
 #-----------------------------------------------
 # SETTINGS
@@ -182,8 +182,21 @@ $emarsys.getSettings()
 
 
 #-----------------------------------------------
-# EXPORT WITH ALL FIELDS
+# SETUP THE OUTPUT FOLDER
 #-----------------------------------------------
+
+# Create temporary directory
+$exportTimestamp = $currentTimestamp.ToString("yyyyMMdd_HHmmss")
+$exportFolder = "$( $settings.download.folder )\$( $exportTimestamp )_$( $processId.Guid )\"
+New-Item -Path $exportFolder -ItemType Directory
+
+
+#-----------------------------------------------
+# EXPORT WITH ALL FIELDS IN BACKGROUND
+#-----------------------------------------------
+
+$loadFolder = "$( $exportFolder )\1_load"
+New-Item -Path $loadFolder -ItemType Directory
 
 $lists = $emarsys.getLists()
 $selectedlist = ( $lists | Select *,  @{name="count";expression={ $_.count() }} -exclude raw ) | Out-GridView -PassThru
@@ -193,20 +206,314 @@ $selectedlist = ( $lists | Select *,  @{name="count";expression={ $_.count() }} 
 $exports = [System.Collections.ArrayList]@()
 $lists | where { $selectedlist.id -contains $_.id } | ForEach {
     $list = $_
-    $exports.AddRange( $emarsys.downloadContactListSync($list,".") )
+    $exports.AddRange( $emarsys.downloadContactList($list,$loadFolder) )
 }
 
-$exports.autoUpdate()
+$exports.autoUpdate($true) # This will automatically check the export job and the $true will automatically download it afterwards
 
-# Wait until all Jobs are finished
+# Wait until all Jobs are finished and all downloaded
 Do {
     Start-Sleep -seconds 1
-    Write-Host "Done $( ( $exports | where { $_.status -eq "done" } ) ).count of $( $exports.count )"
+    Write-Host "Done $( ( $exports | where { $_.status -eq "done" } ).count ) of $( $exports.count )" #-NoNewline
 } until ( ( $exports | where { $_.status -eq "done" } ).count -eq $exports.count )
 
-$exports.downloadResult(".")
+#$exports.downloadResult()
 
-exit 0
+# TODO [ ] Do the next steps with a filewatcher in parallel rather than sequential
+# TODO [ ] Next steps: Split, Transform, import to sqlite
+
+
+################################################
+#
+# FILE HANDLING
+#
+################################################
+
+
+#-----------------------------------------------
+# SPLIT THE DOWNLOADED FILES
+#-----------------------------------------------
+
+$splitFolder = "$( $exportFolder )\2_split"
+New-Item -Path $splitFolder -ItemType Directory
+
+# Remember the current location and change to the export dir
+$currentLocation = Get-Location
+Set-Location $loadFolder
+
+$splitJobs = [System.Collections.ArrayList]@()
+Get-ChildItem -Path $loadFolder | ForEach {
+
+    # Split file in parts
+    $t = Measure-Command {
+        $fileItem = $_
+        $splitParams = @{
+            inputPath = $fileItem.FullName
+            header = $true
+            writeHeader = $true
+            inputDelimiter = ";"
+            outputDelimiter = "`t"
+            #outputColumns = $fields
+            writeCount = 500 #$settings.rowsPerUpload # TODO [ ] change this back for productive use
+            outputDoubleQuotes = $true
+        }
+        $exportId = Split-File @splitParams
+        $splitJobs.Add($exportId)
+
+    }
+
+    Write-Log -message "Done with export id $( $exportId ) in $( $t.Seconds ) seconds!"
+
+    # Move files to next step and remove folders
+    Move-Item -Path "$( $exportId )\*" -Destination $splitFolder
+    Remove-Item -Path $exportId
+
+}
+
+# Set the location back
+Set-Location $currentLocation
+
+
+
+# TODO [ ] built in backup from hubspot
+
+
+
+
+#-----------------------------------------------
+# TRANSFORM FILES
+#-----------------------------------------------
+
+$transformFolder = "$( $exportFolder )\3_transform"
+New-Item -Path $transformFolder -ItemType Directory
+
+$filesToTransform = Get-ChildItem -Path $splitFolder
+
+$i = 1
+$filesToTransform | ForEach {
+
+    $f = $_
+
+    $listId = ( $f.Name -split "_" )[1]
+    $csvData = Import-Csv -Path $f.FullName -Delimiter "`t" -Encoding UTF8
+
+    Write-Log -message "Transforming $( $f.name )"
+    "Doing $( $i ) of $( $filesToTransform.count )"
+
+    # TODO [ ] check if primary key is still user_id
+    $csvData `
+    | select *, @{name="listId";expression={ $listId }} `
+    | Format-KeyValue -idPropertyName "user_id","listId" -removeEmptyValues `
+    | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * `
+    | Export-Csv -Path "$( $transformFolder )\$( $f.Name )" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+    $i++
+
+}
+
+
+#-----------------------------------------------
+# ADD META INFORMATION
+#-----------------------------------------------
+
+$metaFolder = "$( $exportFolder )\0_meta"
+New-Item -Path $metaFolder -ItemType Directory
+
+# Load lists
+$emaLists = $emarsys.getLists()
+$emaLists | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * `
+| Export-Csv -Path "$( $metaFolder )\lists.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+# Load campaigns
+$emaCampaigns = $emarsys.getEmailCampaigns()
+$emaCampaigns | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * `
+| Export-Csv -Path "$( $metaFolder )\campaigns.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+
+# Load fields with details
+$emaFields = $emarsys.getFields($true)
+$emaFields | select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * `
+| Export-Csv -Path "$( $metaFolder )\fields.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+
+# Fields choices
+$emaFields | Select @{name="FieldID";expression={ $_.id }}  -ExpandProperty choices `
+| select @{name="ExtractTimestamp";expression={ $currentTimestamp }}, * `
+| Export-Csv -Path "$( $metaFolder )\fields_choices.csv" -NoTypeInformation -Delimiter "`t" -Encoding UTF8
+
+
+################################################
+#
+# LOAD CSV INTO SQLITE (LOAD FILES AS IS -> TRANSFORM THE DATA TO KEY/VALUE BEFORE)
+#
+################################################
+
+# TODO [ ] make use of transactions for sqlite to get it safe
+# TODO [ ] remove this one and put into settings
+$settings | Add-Member -MemberType NoteProperty -Name "sqliteDb" -Value "C:\Users\Florian\Documents\GitHub\AptecoDesignerActions\preload\emarsysExtract\downloads\db.sqlite"
+$settings.sqliteDb = "C:\Users\Florian\Documents\GitHub\AptecoDesignerActions\preload\emarsysExtract\downloads\db.sqlite"
+Write-Log -message "Import data into sqlite '$( $settings.sqliteDb )'"    
+$newDatabase = Test-Path -Path $settings.sqliteDb
+
+# Settings for sqlite
+$sqliteExe = $libExecutables.Where({$_.name -eq "sqlite3.exe"}).FullName
+$processIdSqliteSafe = "temp__$( $processId.Guid.Replace('-','') )" # sqlite table names are not allowed to contain dashes or begin with numbers
+
+# Create database if not existing
+# In sqlite the database gets automatically created if it does not exist
+
+#-----------------------------------------------
+# IMPORT DATA
+#-----------------------------------------------
+
+Get-ChildItem -Path $transformFolder -Recurse | ForEach {
+
+    # Prepare
+    $f = $_
+    $listId = ( $f.Name -split "_" )[1]
+    $part = $f.Extension -replace "\."
+    $tempName = "$( $part )$( $listId )"
+    $finalDestination = "data"
+    
+    # Import into temp table
+    $tempImport = ImportCsv-ToSqlite -sourceCsv $f.FullName -destinationTable $tempName -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
+    $columnsTemp = Read-Sqlite -query "PRAGMA table_info($( $tempName ))" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
+
+    # Create persistent tables if not existing
+    $tableCreationStatement  = ( Read-Sqlite -query ".schema $( $tempName )" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe -convertCsv $false ) -replace $tempName, "IF NOT EXISTS $( $finalDestination )"    
+
+    if ( $tableCreationStatement ) {
+
+        $tableCreation = Read-Sqlite -query $tableCreationStatement -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe -convertCsv $false
+
+        # Import the files temporarily with process id
+        $columnsString = $columnsTemp.Name -join ", "
+        Read-Sqlite -query "INSERT INTO $( $finalDestination ) ( $( $columnsString ) ) SELECT $( $columnsString ) FROM $( $tempName )" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe    
+
+        # Drop temp table
+        Read-Sqlite -query "Drop table $( $tempName )" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
+        Write-Log -message "Dropping temporary table '$( $tempName )'"
+
+    }
+
+}
+
+
+
+#-----------------------------------------------
+# IMPORT THE METAINFORMATION
+#-----------------------------------------------
+
+# Choose files to import
+$filesToImport = Get-ChildItem -Path $metaFolder -Recurse #-Include $settings.filterForSqliteImport # $transformFolder
+
+# Import the files temporarily with process id
+$filesToImport | ForEach {
+    
+    $f = $_
+    $destination = "$( $processIdSqliteSafe )__$( $f.BaseName )"
+
+    # Import data
+    ImportCsv-ToSqlite -sourceCsv $f.FullName -destinationTable $destination -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
+
+    # Create persistent tables if not existing
+    $tableCreationStatement  = ( Read-Sqlite -query ".schema $( $destination )" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe -convertCsv $false ) -replace $destination, "IF NOT EXISTS $( $f.BaseName )"
+    $tableCreation = Read-Sqlite -query $tableCreationStatement -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe -convertCsv $false
+
+    Write-Log -message "Import temporary table '$( $destination )' and create persistent table if not exists"    
+
+}
+
+
+# Import data from temporary tables to persistent tables
+$filesToImport | ForEach {
+    
+    $f = $_
+    $destination = "$( $processIdSqliteSafe )__$( $f.BaseName )"
+
+    Write-Log -message "Import temporary table '$( $destination )' into persistent table '$( $f.BaseName )'"    
+
+    # Check columns if database is already existing
+    #if ( !$newDatabase ) {
+
+        # Column names of temporary table    
+        $columnsTemp = Read-Sqlite -query "PRAGMA table_info($( $destination ))" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
+
+        # Column names of persistent table
+        $columnsPersistent = Read-Sqlite -query "PRAGMA table_info($( $f.BaseName ))" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
+        $columnsPersistensString = $columnsPersistent.Name -join ", "
+
+        # Compare columns
+        $differences = Compare-Object -ReferenceObject $columnsPersistent -DifferenceObject $columnsTemp -Property Name
+        $colsInPersistentButNotTemporary = $differences | where { $_.SideIndicator -eq "<=" }
+        $colsInTemporaryButNotPersistent = $differences | where { $_.SideIndicator -eq "=>" }
+
+        # Add new columns in persistent table that are only present in temporary tables
+        if ( $colsInTemporaryButNotPersistent.count -gt 0 ) {
+            Send-MailMessage -SmtpServer $settings.mailSettings.smtpServer -From $settings.mailSettings.from -To $settings.mailSettings.to -Port $settings.mailSettings.port -UseSsl -Credential $smtpcred
+                    -Body "Creating new columns $( $colsInTemporaryButNotPersistent.Name -join ", " ) in persistent table $( $f.BaseName ). Please have a look if those should be added in Apteco Designer." `
+                    -Subject "[CRM/Hubspot] Creating new columns in persistent table $( $f.BaseName )"
+        }
+        $colsInTemporaryButNotPersistent | ForEach {
+            $newColumnName = $_.Name
+            Write-Log -message "WARNING: Creating a new column '$( $newColumnName )' in table '$( $f.BaseName )'"
+            Read-Sqlite -query "ALTER TABLE $( $f.BaseName ) ADD $( $newColumnName ) TEXT" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe    
+        }
+
+        # Add new columns in temporary table
+        # There is no need to do that because the new columns in the persistent table are now created and if there are columns missing in the temporary table they won't just get filled.
+        # The only problem could be to have index values not filled. All entries will only be logged.
+        $colsInPersistentButNotTemporary | ForEach {
+            $newColumnName = $_.Name
+            Write-Log -message "WARNING: There is column '$( $newColumnName )' missing in the temporary table for persistent table '$( $f.BaseName )'. This will be ignored."
+        }
+    #}
+
+    # Import the files temporarily with process id
+    $columnsString = $columnsTemp.Name -join ", "
+    Read-Sqlite -query "INSERT INTO $( $f.BaseName ) ( $( $columnsString ) ) SELECT $( $columnsString ) FROM $( $destination )" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe    
+
+}
+
+# Drop temporary tables
+$filesToImport | ForEach {  
+    $f = $_
+    $destination = "$( $processIdSqliteSafe )__$( $f.BaseName )"
+    Read-Sqlite -query "Drop table $( $destination )" -sqliteDb $settings.sqliteDb -sqliteExe $sqliteExe 
+    Write-Log -message "Dropping temporary table '$( $destination )'"
+}  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #-----------------------------------------------
 # EXPORT WITH SELECTED FIELDS
@@ -220,7 +527,7 @@ $fields = $emarsys.getFields($false) | Out-GridView -PassThru | Select -first 20
 $exports = [System.Collections.ArrayList]@()
 $lists | where { $selectedlist.id -contains $_.id } | ForEach {
     $list = $_
-    $exports.Add( $emarsys.downloadContactListSync($list,$fields,".") )
+    $exports.Add( $emarsys.downloadContactList($list,$fields,".") )
 }
 
 $exports.autoUpdate()
@@ -231,7 +538,7 @@ Do {
     Write-Host "Done $( ( $exports | where { $_.status -eq "done" } ) ).count of $( $exports.count )"
 } until ( ( $exports | where { $_.status -eq "done" } ).count -eq $exports.count )
 
-$exports.downloadResult(".")
+$exports.downloadResult()
 
 exit 0
 
