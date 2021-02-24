@@ -182,26 +182,67 @@ $emarsys.getSettings()
 
 
 #-----------------------------------------------
-# EXPORT
+# EXPORT WITH ALL FIELDS
 #-----------------------------------------------
 
 $lists = $emarsys.getLists()
-$selectedlist = ( $lists | Select *,  @{name="count";expression={ $_.count() }} -exclude raw ) | Out-GridView -PassThru | Select -first 1
-$list = $lists | where { $_.id -eq $selectedlist.id }
-$fields = $emarsys.getFields($false) | Out-GridView -PassThru | Select -first 20
-$t = Measure-Command {
-    $export = $emarsys.downloadContactListSync($list,$fields,".")
+$selectedlist = ( $lists | Select *,  @{name="count";expression={ $_.count() }} -exclude raw ) | Out-GridView -PassThru
+#$list = $lists | where { $selectedlist.id -contains $_.id }
+
+#$fields = $emarsys.getFields($false) | Out-GridView -PassThru | Select -first 20
+$exports = [System.Collections.ArrayList]@()
+$lists | where { $selectedlist.id -contains $_.id } | ForEach {
+    $list = $_
+    $exports.AddRange( $emarsys.downloadContactListSync($list,".") )
 }
+
+$exports.autoUpdate()
+
+# Wait until all Jobs are finished
+Do {
+    Start-Sleep -seconds 1
+    Write-Host "Done $( ( $exports | where { $_.status -eq "done" } ) ).count of $( $exports.count )"
+} until ( ( $exports | where { $_.status -eq "done" } ).count -eq $exports.count )
+
+$exports.downloadResult(".")
+
+exit 0
+
+#-----------------------------------------------
+# EXPORT WITH SELECTED FIELDS
+#-----------------------------------------------
+
+$lists = $emarsys.getLists()
+$selectedlist = ( $lists | Select *,  @{name="count";expression={ $_.count() }} -exclude raw ) | Out-GridView -PassThru
+#$list = $lists | where { $selectedlist.id -contains $_.id }
+
+$fields = $emarsys.getFields($false) | Out-GridView -PassThru | Select -first 20
+$exports = [System.Collections.ArrayList]@()
+$lists | where { $selectedlist.id -contains $_.id } | ForEach {
+    $list = $_
+    $exports.Add( $emarsys.downloadContactListSync($list,$fields,".") )
+}
+
+$exports.autoUpdate()
+
+# Wait until all Jobs are finished
+Do {
+    Start-Sleep -seconds 1
+    Write-Host "Done $( ( $exports | where { $_.status -eq "done" } ) ).count of $( $exports.count )"
+} until ( ( $exports | where { $_.status -eq "done" } ).count -eq $exports.count )
+
+$exports.downloadResult(".")
+
 exit 0
 
 
 do {
     Start-Sleep -seconds 10
     $export.updateStatus()
+    # TODO [ ] download and process the data when already done
 } until ($export.status -eq "done")
 
 $export.downloadResult(".")
-"Downloaded in $( $export.totalSeconds ) seconds"
 
 
 <#
