@@ -184,11 +184,12 @@ $uploadSettings = @{
 
 
 #-----------------------------------------------
-# UPLOAD SETTINGS
+# DOWNLOAD SETTINGS
 #-----------------------------------------------
 
 $downloadSettings = @{
     folder = $download
+    waitSecondsLoop = 10
 }
 
 

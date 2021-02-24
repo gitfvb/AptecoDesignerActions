@@ -190,9 +190,25 @@ $selectedlist = ( $lists | Select *,  @{name="count";expression={ $_.count() }} 
 $list = $lists | where { $_.id -eq $selectedlist.id }
 $fields = $emarsys.getFields($false) | Out-GridView -PassThru | Select -first 20
 $t = Measure-Command {
-    $emarsys.downloadContactListSync($list,$fields,".")
+    $export = $emarsys.downloadContactListSync($list,$fields,".")
 }
-"Downloaded in $( $t.TotalSeconds ) seconds"
+exit 0
+
+
+do {
+    Start-Sleep -seconds 10
+    $export.updateStatus()
+} until ($export.status -eq "done")
+
+$export.downloadResult(".")
+"Downloaded in $( $export.totalSeconds ) seconds"
+
+
+<#
+use split files for bigger files
+transform object
+import into sqlite
+#>
 
 exit 0
 
