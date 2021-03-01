@@ -239,6 +239,7 @@ class DCSPMailing {
 enum DCSPMailingsEmailContentTypes {
     html = 10
     text = 20
+    block = 30
 }
 
 # Additional properties for email channel
@@ -378,7 +379,180 @@ class EmarsysMailing : DCSPMailingsEmail {
     #-----------------------------------------------
     # METHODS
     #-----------------------------------------------
+    <#
+    getDetails() {
 
+        # Details
+        $params = $this.defaultParams + @{
+            uri = "$( $this.baseUrl)email/$( $this.id )"
+        }
+        Invoke-emarsys @params | select * -ExcludeProperty "html_source","text_source" | Out-GridView
+    }
+    #>
+
+    [PSCustomObject] getResponseSummary() {
+
+        # Response summary
+        $params = $this.emarsys.defaultParams + @{
+            uri = "$( $this.emarsys.baseUrl)email/$( $this.id )/responsesummary" # ?launch_id={{launch_id}}&start_date={{start_date}}&end_date={{end_date}}
+        }
+        $res = Invoke-emarsys @params
+        return $res
+
+    }
+
+    [PSCustomObject] getLaunches() {
+
+        $body = @{
+            emailId = $this.id # html|text|mobile
+        }
+        $bodyJson = ConvertTo-Json -InputObject $body -Depth 20
+
+        # Call emarsys
+        $params = $this.emarsys.defaultParams + @{
+            uri = "$( $this.emarsys.baseUrl)email/getlaunchesofemail"
+            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            body = $bodyJson
+            verbose = $true
+        }
+        $res = Invoke-emarsys @params
+        return $res
+
+    }
+
+    [PSCustomObject] getDeliveryStatus() {
+        return getDeliveryStatus(0)
+    }
+
+    [PSCustomObject] getDeliveryStatus([int]$launchId) {
+
+        # https://dev.emarsys.com/v2/email-campaign-life-cycle/query-delivery-status
+
+        $body = @{
+            emailId = $this.id
+            #lastId
+            #allowNotFinished
+        }
+
+        # Add launch id if not zero
+        if ( $launchId -gt 0 ) {
+            $body | Add-Member -MemberType NoteProperty -Name "launchId" -Value $launchId
+        }
+
+        $bodyJson = ConvertTo-Json -InputObject $body -Depth 20
+
+        # Call emarsys
+        $params = $this.emarsys.defaultParams + @{
+            uri = "$( $this.emarsys.baseUrl)email/getdeliverystatus"
+            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            body = $bodyJson
+            verbose = $true
+        }
+        $res = Invoke-emarsys @params
+        return $res
+
+    }    
+
+    [PSCustomObject] getPreview() {
+    
+        return $this.getPreview("html")
+
+    }
+    
+    # put in html, text, mobile
+    [PSCustomObject] getPreview([String]$version) {
+
+        # https://dev.emarsys.com/v2/email-campaign-life-cycle/preview-email-campaign-contents
+
+        $body = @{
+            version = $version # html|text|mobile
+        }
+        $bodyJson = ConvertTo-Json -InputObject $body -Depth 20
+
+        # Call emarsys
+        $params = $this.emarsys.defaultParams + @{
+            uri = "$( $this.emarsys.baseUrl)email/$( $this.id )/preview"
+            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            body = $bodyJson
+            verbose = $true
+        }
+        $res = Invoke-emarsys @params
+        return $res
+
+    }
+    
+    [PSCustomObject] sendTest([String]$subject, [EmarsysList]$list) {
+
+        # https://dev.emarsys.com/v2/email-campaign-life-cycle/send-a-test-email
+
+        # TODO [ ] implement recipientlist, filte_id and contactlist first
+
+        $body = @{
+            subject = $subject
+
+            # Multiple values are allowed, separated by a comma without whitespace.
+            # Provide either a recipientlist, filter_id or contactlist_id. Do not combine.
+            recipientlist = $list.id
+            #filter_id = 0
+            #contactlist_id = 0
+        }
+        $bodyJson = ConvertTo-Json -InputObject $body -Depth 20
+
+        # Call emarsys
+        $params = $this.emarsys.defaultParams + @{
+            uri = "$( $this.emarsys.baseUrl)email/$( $this.id )/sendtestmail"
+            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            body = $bodyJson
+            verbose = $true
+        }
+        $res = Invoke-emarsys @params
+        return $res
+
+    }
+
+    # Use this endpoint to ask for response data
+    # then start polling downloadResponses within 2 minutes
+    # the result is available for 2 hourse
+    [int] getResponses([String]$type) {
+
+        return $this.emarsys.getResponses($type,$this.id)
+
+        # https://dev.emarsys.com/v2/email-campaign-life-cycle/preview-email-campaign-contents
+
+        # TODO [ ] Put the type in an enum
+        <#
+        $body = @{
+            "type" = $type # opened, not_opened, received, clicked, not_clicked, bounced, hard_bounced, soft_bounced, block_bounced
+            #"start_date" = "YYYY-MM-DD"
+            #"end_date" = "YYYY-MM-DD"
+            "campaign_id" = $this.id # optional
+        }
+        $bodyJson = ConvertTo-Json -InputObject $body -Depth 20
+
+        # Call emarsys
+        $params = $this.emarsys.defaultParams + @{
+            uri = "$( $this.emarsys.baseUrl)email/responses"
+            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            body = $bodyJson
+            verbose = $true
+        }
+        $res = Invoke-emarsys @params
+        return $res.id
+#>
+    }
+
+    [PSCustomObject] pollResponseResults([int]$queryId) {
+
+        return $this.emarsys.pollResponseResults($queryId)
+        <#
+        # Response summary
+        $params = $this.emarsys.defaultParams + @{
+            uri = "$( $this.emarsys.baseUrl)email/$( $queryId )/responses"
+        }
+        $res = Invoke-emarsys @params
+        return $res
+        #>
+    }
 
 }
 
@@ -480,7 +654,7 @@ class EmarsysExport {
             # Check current status
             $emarsysExport.updateStatus()
 
-            If ($emarsysExport.status -eq "done") {
+            If ($emarsysExport.status -eq "done" ) { # -or ( $this.raw.type -eq "responses" -and $emarsysExport.status -eq "ready")
 
                 $Sender.stop()
 
@@ -514,22 +688,36 @@ class EmarsysExport {
         # TODO [ ] implement offset and limit
         # TODO [ ] export contains multiple files
         # TODO [ ] calculate time when finishing export
-        if ( $this.status -eq "done" ) {
-
-            $listCount = $this.list.count()
-            $rounds = [Math]::Ceiling($listCount/$this.limit)
+        if ( @("ready","done") -contains $this.status ) {
+            
+            if ($this.raw.type -eq "contactlist") {
+                $listCount = $this.list.count()
+                $rounds = [Math]::Ceiling($listCount/$this.limit)
+            } else {
+                $rounds = 1
+            }
 
             for ( $i = 0 ; $i -lt $rounds ; $i++ ) {
                 # TODO [ ] it looks like there is a bug in offset and limit, so re-visit this later
                 $offset = $i * $rounds
+
+                # Sometimes the export does not come to the status "done" so we can download it with a fictitous filename
+                #if ( $this.status -eq "ready" ) {
+                #    $this.filename = "$( [DateTime]::Now.ToString("yyyyMMdd_HHmmss") ).csv"
+                #}
+
+                # Create the download job
                 $params = $this.emarsys.defaultParams + @{
                     uri = "$( $this.emarsys.baseUrl )export/$( $this.exportId )/data" #?offset=$( $offset )&limit=$( $this.limit )"
                     outFile = "$( $this.outputFolder )\$( $this.filename )"
                 }
                 Invoke-emarsys @params
+
+                # Add to the result
                 $this.exportFiles += $params.OutFile
             }
 
+            # Flag this as already downloaded
             $this.alreadyDownloaded = $true
 
         }
@@ -665,7 +853,7 @@ class Emarsys : DCSP {
         $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)field"
             method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
-            $body = $bodyJson
+            body = $bodyJson
             verbose = $true
         }
         $res = Invoke-emarsys @params
@@ -775,6 +963,20 @@ class Emarsys : DCSP {
 
     }
 
+
+    [PSCustomObject] getSegments () {
+
+        # TODO  [ ] implement as classes 
+
+        # Call emarsys
+        $params = $this.defaultParams + @{
+            uri = "$( $this.baseUrl)filter"
+        }
+        $res = Invoke-emarsys @params
+        return $res
+
+    }
+
     [PSCustomObject] getSources () {
 
         # TODO  [ ] implement as classes 
@@ -795,7 +997,7 @@ class Emarsys : DCSP {
 
         # Call emarsys
         $params = $this.defaultParams + @{
-            uri = "$( $this.baseUrl)email"
+            uri = "$( $this.baseUrl)email" # ?status={{status}}&launched={{launched}}&contactlist={{contactlist}}&showdeleted={{showdeleted}}&fromdate={{fromdate}}&todate={{todate}}&root_campaign_id={{root_campaign_id}}&template={{template}}&content_type={{content_type}}&campaign_type={{campaign_type}}&parent_campaign_id={{parent_campaign_id}}&behavior_channel={{behavior_channel}}&email_category={{email_category}}
         }
         $res = Invoke-emarsys @params
 
@@ -908,6 +1110,19 @@ class Emarsys : DCSP {
 
     }
 
+    [PSCustomObject] getEmailCategories () {
+
+        # TODO  [ ] implement as classes 
+
+        # Call emarsys
+        $params = $this.defaultParams + @{
+            uri = "$( $this.baseUrl)emailcategory"
+        }
+        $res = Invoke-emarsys @params
+        return $res
+
+    }
+
 
 
     [EmarsysExport[]] downloadContactList ( [EmarsysList]$list, [String]$outputFolder ) {
@@ -988,39 +1203,64 @@ class Emarsys : DCSP {
         return $export
     }
 
+    [EmarsysExport] downloadSegment ([String]$outputFolder) {
+        # https://dev.emarsys.com/v2/contact-and-email-data/export-a-segment
+        # TODO [ ] implement this
+        return [EmarsysExport]@{}
+    }
 
-    [EmarsysExport] downloadResponses ([EmarsysList]$list) {
+    [EmarsysExport] downloadRegistrations ([String]$outputFolder) {
+        # https://dev.emarsys.com/v2/contact-and-email-data/export-contact-registrations
+        # TODO [ ] implement this
+        return [EmarsysExport]@{}
+    }
+
+
+    [EmarsysExport] downloadResponses ([String]$outputFolder) {
 
         # TODO [ ] implement the response download
 
         # https://dev.emarsys.com/v2/contact-and-email-data/export-responses
         $body = @{
             distribution_method = "local"
-            time_range = @() #YYYY-MM-DD HH-SS
-            contact_fields = @() # The field identifiers to include in the export.
-            sources = @() # trackable_links, registration_forms, tell_a_friend, contact_us, change_profile, unsubscribe, mail_open, complaint
-            analysis_fields = @() # ->
-
-<#
-Value 	Description
-1 	Campaign title
-2 	Section header
-3 	Section group
-4 	Link title
-5 	URL
-8 	Time
-12 	Campaign identifier
-13 	Version name
-14 	Campaign category
-15 	Link category
-#>
+            time_range = @(
+                ( Get-Date -Year 2020 -Month 7 -Day 1 -Hour 0 -Minute 0 -Second 0 ).ToString("yyyy-MM-dd HH:mm:ss")
+                ( Get-Date -Year 2020 -Month 12 -Day 31 -Hour 23 -Minute 59 -Second 59 ).ToString("yyyy-MM-dd HH:mm:ss")
+                #[DateTime]::UtcNow.ToString("yyyy-MM-dd HH:mm:ss")
+            ) #YYYY-MM-DD HH-SS
+            contact_fields = @(
+                1
+                3 # 3 is email
+            ) # the field identifiers to include in the export.
+            sources = @(
+                #"trackable_links"
+                #"registration_forms"
+                #"tell_a_friend"
+                #"contact_us"
+                #"change_profile"
+                #"unsubscribe"
+                "mail_open"
+                #"complaint"
+            )
+            analysis_fields = @(
+                #1   # Campaign title
+                #2   # Section header
+                #3   # Section group
+                #4   # Link title
+                5   # URL
+                8   # Time
+                #12  # Campaign identifier
+                #13  # Version name
+                #14  # Campaign category
+                15  # Link category
+            ) 
 
             # optional
-            email_id = 0    # The identifier of the email campaign. Returns the contact's responses to the email.
-            contactlist = $list.id # The identifier of the contact list to filter the results.
+            #email_id = 100146526    # The identifier of the email campaign. Returns the contact's responses to the email.
+            #contactlist = 786367148 #$list.id # The identifier of the contact list to filter the results.
             delimiter = ";" # ,|;
             add_field_names_header = 1 # Determines whether to insert a header row into the CSV file.
-            #language = "de"
+            language = "de"
         }
 
         # Call emarsys to create export job
@@ -1031,6 +1271,8 @@ Value 	Description
         }
         $exportId = Invoke-emarsys @params    
 
+        # TODO [ ] load the body / parameters into the Export object, too?
+
         # Create the export object now
         $export = ( [EmarsysExport]@{
             
@@ -1039,7 +1281,7 @@ Value 	Description
             "outputFolder" = "."
         
             #"fields" = $fields
-            "list" = $list
+            #"list" = $list
         
             "exportId" = $exportId.id
         
@@ -1051,6 +1293,52 @@ Value 	Description
 
     }
 
+    [int] getResponses([String]$type) {
+        return $this.getResponses($type,0)
+    }
+    
+    # Use this endpoint to ask for response data
+    # then start polling downloadResponses within 2 minutes
+    # the result is available for 2 hourse
+    [int] getResponses([String]$type, [int]$campaignId) {
+
+        # https://dev.emarsys.com/v2/email-campaign-life-cycle/preview-email-campaign-contents
+
+        # TODO [ ] Put the type in an enum
+
+        $body = @{
+            "type" = $type # opened, not_opened, received, clicked, not_clicked, bounced, hard_bounced, soft_bounced, block_bounced
+            #"start_date" = "YYYY-MM-DD"
+            #"end_date" = "YYYY-MM-DD"
+            #"campaign_id" = $this.id # optional
+        }        
+        if ( $campaignId -gt 0 ) {
+            $body | Add-Member -MemberType NoteProperty -Name "campaign_id" -Value $campaignId
+        }
+        $bodyJson = ConvertTo-Json -InputObject $body -Depth 20
+
+        # Call emarsys
+        $params = $this.defaultParams + @{
+            uri = "$( $this.baseUrl)email/responses"
+            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            body = $bodyJson
+            verbose = $true
+        }
+        $res = Invoke-emarsys @params
+        return $res.id
+
+    }
+
+    [PSCustomObject] pollResponseResults([int]$queryId) {
+
+        # Response summary
+        $params = $this.defaultParams + @{
+            uri = "$( $this.baseUrl)email/$( $queryId )/responses"
+        }
+        $res = Invoke-emarsys @params
+        return $res
+
+    }
 
 }
 

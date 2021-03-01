@@ -181,12 +181,21 @@ $emarsys = [Emarsys]::new($cred,$settings.base)
 $emarsys.getSettings()
 
 
+$exp = $emarsys.downloadResponses(".")
+$exp.autoUpdate($true)
+exit 0
+$emarsys.getExports().updateStatus()
+$emarsys.getExports().raw
+
+$emarsys.getExports().downloadResult()
+
+exit 0
 #-----------------------------------------------
 # SETUP THE OUTPUT FOLDER
 #-----------------------------------------------
 
 # Create temporary directory
-$exportTimestamp = $currentTimestamp.ToString("yyyyMMdd_HHmmss")
+$exportTimestamp = $timestamp.ToString("yyyyMMdd_HHmmss")
 $exportFolder = "$( $settings.download.folder )\$( $exportTimestamp )_$( $processId.Guid )\"
 New-Item -Path $exportFolder -ItemType Directory
 
@@ -197,6 +206,20 @@ New-Item -Path $exportFolder -ItemType Directory
 
 $loadFolder = "$( $exportFolder )\1_load"
 New-Item -Path $loadFolder -ItemType Directory
+
+
+
+
+
+$exp = $emarsys.downloadResponses(".")
+exit 0
+$exp.autoUpdate($true)
+
+$emarsys.getExports().updateStatus()
+$emarsys.getExports().raw
+$emarsys.getExports().downloadResult()
+
+exit 0
 
 $lists = $emarsys.getLists()
 $selectedlist = ( $lists | Select *,  @{name="count";expression={ $_.count() }} -exclude raw ) | Out-GridView -PassThru
@@ -509,6 +532,32 @@ $filesToImport | ForEach {
 
 
 
+#-----------------------------------------------
+# TEST QUERYING RESPONSES WITH CAMPAIGN
+#-----------------------------------------------
+
+$campaign = $emarsys.getEmailCampaigns() | Out-GridView -PassThru | select -first 1
+$queryId = $campaign.getResponses("received") # opened, not_opened, received, clicked, not_clicked, bounced, hard_bounced, soft_bounced, block_bounced
+
+Do {
+    Start-Sleep -Seconds 10
+    $res = $campaign.pollResponseResults($queryId)
+} until ( $res.contact_ids )
+
+$res
+
+#-----------------------------------------------
+# TEST QUERYING RESPONSES GLOBALLY (which does not show you the campaign)
+#-----------------------------------------------
+
+$queryId = $emarsys.getResponses("received") # opened, not_opened, received, clicked, not_clicked, bounced, hard_bounced, soft_bounced, block_bounced
+
+Do {
+    Start-Sleep -Seconds 10
+    $res = $emarsys.pollResponseResults($queryId)
+} until ( $res.contact_ids )
+
+$res
 
 
 
@@ -621,22 +670,4 @@ $emarsys.getLinkCategories()
 $emarsys.getSources()
 $emarsys.getAutoImportProfiles()
 $emarsys.getConditionalTextRules()
-
-
-#Invoke-emarsys -uri "$( $settings.base )settings" -cred $cred
-
-
-
-#-----------------------------------------------
-# PREVIEW
-#-----------------------------------------------
-
-$selectedCampaigns | ForEach {
-    $id = $_.id 
-    $url = "https://trunk-int.s.emarsys.com/api/v2/email/$( $id )/preview"
-    $preview = Invoke-RestMethod -uri $url -Method Post -Headers $header -Verbose -Body "{""version"": ""html""}"
-    $preview.data
-}
-
-exit 0
 
