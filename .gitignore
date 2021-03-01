@@ -1,5 +1,8 @@
 
-*.json
-*.debug
-*.key
 *.csv
+*.part*
+*.sqlite
+*.log
+*.debug
+*.json
+*.key
