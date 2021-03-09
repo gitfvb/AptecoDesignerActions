@@ -29,7 +29,7 @@ $params = [hashtable]@{
 # DEBUG SWITCH
 #-----------------------------------------------
 
-$debug = $false
+$debug = $true
 
 
 #-----------------------------------------------
@@ -228,7 +228,7 @@ $extractInfos | ForEach {
 # EXTRACT ID + ADRESSFIELDS + GENERATE MD5 HASH
 #-----------------------------------------------
 
-$t = Measure-Command {
+$t1 = Measure-Command {
 
     $settings.extractDefinitions | ForEach {
 
@@ -307,50 +307,89 @@ $t = Measure-Command {
         }
 
         # Split the file and remember the IDs
-        $extract | Add-Member -MemberType NoteProperty -Name "splitID" -Value ( Split-File @params )
+        $extract["splitID"] = Split-File @params
 
     }
 
 }
 
-Write-Log -message "Extract and hashing of addresses done in $( $t.TotalSeconds ) seconds"
+Write-Log -message "Extract and hashing of addresses done in $( $t1.TotalSeconds ) seconds"
 
 
+#exit 0
 #-----------------------------------------------
 # CHECK HASH VALUES AGAINST EXISTING VALUES IN DATABASE
 #-----------------------------------------------
 
-$t = Measure-Command {
+
+$t2 = Measure-Command {
 
     $settings.extractDefinitions | ForEach {
 
+        # Preparation
         $extract = $_
         $splitID = $extract.splitID
+        
+        # save random records for testing
+        #$arrayList | Get-Random -count 36000 | Set-Content -Path ".\random.csv" -Encoding utf8
+
+        # Read existing hashes - read random records for now
+        $existing = Get-Content -Path ".\random.csv" 
+
+        # put random records in hashtable and arraylist
+        $existingHashes = [hashtable]@{}
+        foreach ($row in $random) {
+            $existingHashes[$row] = $null
+        }
 
         # Go through every splitted file
+        $newHashes = [hashtable]@{}
         Get-ChildItem -Path "$( $settings.processingFolder )\$( $splitID )" -Filter "*.part*" | ForEach {
 
             $sf = $_
             $csv = Import-Csv -Path $sf.FullName -Delimiter "`t" -Encoding UTF8 -Verbose
-
-            foreach ($row in $csv) {
-
-            }
             
-            # Export the csv file again
-            #$csv | Export-Csv -Path "$( $settings.processingFolder )\$( $splitID )\test.csv" -encoding UTF8 -NoTypeInformation -Delimiter "`t" -Append
+            # Fill hashtable with hashed addresses
+            $currentHashes = [Hashtable]@{}
+            foreach ($row in $csv) {
+                $currentHashes[$row.AddressHash] = $null                
+            }
+
+            # Build the differences
+            $currentHashes.keys | where { -not $existingHashes.ContainsKey($_)} | ForEach { $newHashes[$_] = $null }
 
         }
+
+        # the new hashes are now in $newHashes.Keys
+
+        Write-Log -message "Found out $($newHashes.Keys.count) new hashes for '$( $extract.name )'"
+
 
     }
 
 }
 
-Write-Log -message "Checking of address hash done in $( $t.TotalSeconds ) seconds"
+Write-Log -message "Comparing of hash values took $( $t2.TotalSeconds ) seconds"
 
 
-exit 0
+<#
 
+# Compare hashes
+# intersection 
+# 50k records with 36k records needs 417 seconds
+$intersection = [hashtable]@{}
+Measure-Command {
+    $hash.Keys | where {$randomHash.ContainsKey($_)} | ForEach {$intersection[$_] = $null}
+}
+
+# difference
+$difference = [hashtable]@{}
+Measure-Command {
+    $hash.keys | where { -not $randomHash.ContainsKey($_)} | ForEach {$difference[$_] = $null}
+}
+
+#>
+exit  0
 
 #-----------------------------------------------
 # BATCH GEOCODE DIFFERENCE ROWS
