@@ -242,6 +242,7 @@ $extractInfos | ForEach {
 #-----------------------------------------------
 # EXTRACT ID + ADRESSFIELDS
 #-----------------------------------------------
+
 $t = Measure-Command {
 
     $settings.extractDefinitions | ForEach {
@@ -256,6 +257,62 @@ $t = Measure-Command {
         # Load current data from extract
         $currentExtract = $extracts.where({ $_.Table -eq $extract.name })
 
+        #--------------------------------------------------------------
+        # create the sessionstate for the runspace pool to share functions and variables
+        #--------------------------------------------------------------
+
+        # Reference: https://devblogs.microsoft.com/scripting/powertip-add-custom-function-to-runspace-pool/                
+        # and https://docs.microsoft.com/de-de/powershell/scripting/developer/hosting/creating-an-initialsessionstate?view=powershell-7.1
+        $iss = [initialsessionstate]::CreateDefault()
+
+        # create sessionstate function entries
+        @("Convert-HexToByteArray","Convert-ByteArrayToHex","Get-StringHash") | ForEach {
+            $functionName = $_
+            $definition = Get-Content "Function:\$( $functionName )" -ErrorAction Stop                
+            $sessionStateFunction = [System.Management.Automation.Runspaces.SessionStateFunctionEntry]::new($functionName, $definition)
+            $iss.Commands.Add($sessionStateFunction)
+        }       
+
+        # create sessionstate variable entries
+        $variablesToPass = [Hashtable]@{
+            "extractAddressFields" = $settings.extractDefinitions[0].addressFields
+        }
+        ForEach ($key in $variablesToPass.keys) {
+            $var = [System.Management.Automation.Runspaces.SessionStateVariableEntry]::new($key,$variablesToPass.$key,"")
+            $iss.Variables.Add($var)
+        }
+        #$var1 = [System.Management.Automation.Runspaces.SessionStateVariableEntry]::new("extractAddressFields",$settings.extractDefinitions[0].addressFields,"")
+        #$iss.Variables.Add($var1)
+
+
+        #--------------------------------------------------------------
+        # create additional columns / expressions on the fly for the CSV
+        #--------------------------------------------------------------
+
+        $additionalColumns = [System.Collections.ArrayList]@(
+            #[Hashtable]@{name="ColA";expression = { 2 + 3 }}
+            #[Hashtable]@{name="ColB";expression = { 2 * 3 }}
+            #[Hashtable]@{name="ColC";expression = { [int]$_.Region * 2 }}
+            #[Hashtable]@{name="ColD";expression = { $row = $_; $addressString=[System.Collections.ArrayList]@(); @("Address","Town","Region","Postcode") | ForEach { [void]$addressString.add( $row.$_ ) } ; $addressString -join "|" }}
+            #[Hashtable]@{name="ColD";expression = {
+            #    $row = $_
+            #    $addressString=[System.Collections.ArrayList]@()
+            #    @( $extractAddressFields ) | ForEach {
+            #        [void]$addressString.add( $row.$_ )
+            #    }
+            #    $addressString -join "|" 
+            #}}
+            #[Hashtable]@{name="ColG";expression = { Get-StringHash -inputString "Hello" -hashName "MD5" }}
+            [Hashtable]@{name="ColE";expression = {
+                $row = $_
+                $addressString=[System.Collections.ArrayList]@()
+                @( $extractAddressFields ) | ForEach {
+                    [void]$addressString.add( $row.$_ )
+                }
+                Get-StringHash -inputString ( $addressString -join "|" ) -hashName "MD5"
+            }}
+        )       
+
         # Arguments for Filesplitting
         $params = @{
             inputPath = $currentExtract.Filename
@@ -263,22 +320,29 @@ $t = Measure-Command {
             outputDelimiter = "`t"
             writeCount = 150000
             batchSize = 150000
-            chunkSize = 10000
+            chunkSize = 5000
             header = $true
             writeHeader = $true
             outputColumns = $columnsToExtract
             #outputDoubleQuotes = $false
             outputFolder = $settings.processingFolder
+            additionalColumns = $additionalColumns
+            initialsessionstate = $iss
         }
 
+        #exit 0
+
         # Split the file and remember the ID
-        $extract | Add-Member -MemberType NoteProperty -Name "splitID" -Value ( Split-File @params )
+        Split-File @params
+        #$extract | Add-Member -MemberType NoteProperty -Name "splitID" -Value (  )
 
     }
 
 }
 
 Write-Log -message "Extract of addresses done in $( $t.TotalSeconds ) seconds"
+
+exit 0
 
 #-----------------------------------------------
 # PARSE THROUGH FILES AND GENERATE HASH

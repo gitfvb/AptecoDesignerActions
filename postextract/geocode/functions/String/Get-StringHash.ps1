@@ -14,9 +14,7 @@ Get-StringHash -inputString "HelloWorld" -hashName "HMACSHA256" -key "GoGoGo"
 
 
 #>
-Function Get-StringHash()
-
-{
+Function Get-StringHash() {
     [cmdletbinding()]
     param(
          [Parameter(Mandatory=$true)][String]$inputString

@@ -1,5 +1,45 @@
 ﻿<#
+
 Requires the loaded log function from https://github.com/Apteco/HelperScripts/tree/master/functions/Log
+
+Example for creating an initialsessionstate
+
+    # Reference: https://devblogs.microsoft.com/scripting/powertip-add-custom-function-to-runspace-pool/                
+    # and https://docs.microsoft.com/de-de/powershell/scripting/developer/hosting/creating-an-initialsessionstate?view=powershell-7.1
+    $iss = [initialsessionstate]::CreateDefault()
+
+    # create a sessionstate function entry
+    $definition = Get-Content Function:\Get-StringHash -ErrorAction Stop                
+    $sessionStateFunction = [System.Management.Automation.Runspaces.SessionStateFunctionEntry]::new(‘Get-StringHash’, $definition)
+    $iss.Commands.Add($sessionStateFunction)
+
+    # create a sessionstate variable entry
+    $var1 = [System.Management.Automation.Runspaces.SessionStateVariableEntry]::new("extractAddressFields",$settings.extractDefinitions[0].addressFields,"Defines address variables to extract")
+    $iss.Variables.Add($var1)
+
+Example of calling this function
+
+    # Arguments for Filesplitting
+    $params = @{
+        inputPath = $currentExtract.Filename
+        inputDelimiter = "`t"
+        outputDelimiter = "`t"
+        writeCount = 150000
+        batchSize = 150000
+        chunkSize = 5000
+        header = $true
+        writeHeader = $true
+        outputColumns = $columnsToExtract
+        #outputDoubleQuotes = $false
+        outputFolder = $settings.processingFolder
+        additionalColumns = $additionalColumns
+
+    }
+
+    # Split the file and remember the ID
+    Split-File @params
+
+
 #>
 
 Function Split-File {
@@ -17,9 +57,10 @@ Function Split-File {
         ,[Parameter(Mandatory=$false)][bool]$header = $true                 # file has a header?
         ,[Parameter(Mandatory=$false)][bool]$writeHeader = $true            # output the header
         ,[Parameter(Mandatory=$false)][string[]]$outputColumns = @()        # columns to output
-        ,[Parameter(Mandatory=$false)][switch]$outputDoubleQuotes = $false  # output double quotes 
+        ,[Parameter(Mandatory=$false)][switch]$outputDoubleQuotes = $true   # output double quotes -> $true is better performance because it needs to be removed by an regex
         ,[Parameter(Mandatory=$false)][String]$outputFolder = "."           # output root folder 
-
+        ,[Parameter(Mandatory=$false)][System.Collections.ArrayList]$additionalColumns = [System.Collections.ArrayList]@()      # more columns to define via @( @{name="colA";expression={ $_.num + 1 }}, @{name="colB";expression={ 2 + 1 }} )
+        ,[Parameter(Mandatory=$false)][initialsessionstate]$initialsessionstate = [initialsessionstate]::CreateDefault()        # allows you to add functions and variables to each runspace pool so they can be shared
     )
 
     begin {
@@ -56,6 +97,12 @@ Function Split-File {
         # add extension to file prefix dependent on number of export files
         if ( $writeCount -ne -1 ) {
             $exportFilePrefix = "$( $exportFilePrefix ).part"
+        }
+
+        # setup output columns
+        $additionalColumns | ForEach {
+            $addColumn = $_
+            $outputColumns += $addColumn.Name
         }
     
     }
@@ -161,9 +208,23 @@ Function Split-File {
                     $outputDelimiter = $parameters.outputDelimiter
                     $outputCols = $parameters.outputColumns
                     $outputDoubleQuotes = $parameters.outputDoubleQuotes
+                    $additionalColumns = $parameters.additionalColumns
+
+                    #Get-Item Function:\ | ForEach { $_.Name } | set-content -path "C:\Apteco\Build\20210308\postextract\$( [guid]::NewGuid() ).csv" -Encoding UTF8 
+
 
                     # read input, convert to output
                     $inputlines =  $chunk | ConvertFrom-Csv -Delimiter $inputDelimiter
+
+                    # Enrich additional calculated columns          
+                    #$additionalColumns | ConvertTo-Json -Depth 3 | Set-Content -Path "$( [guid]::NewGuid() ).json" -Encoding UTF8
+                    $additionalColumns | ForEach {
+                        $addCol = $_
+                        $inputlines = $inputlines | select *, $addCol
+                        #$inputlines | export-csv -Path "$( [guid]::NewGuid() ).csv" -Delimiter "`t" -Encoding UTF8 -NoTypeInformation
+                    }
+                    
+                    # Output rows
                     $outputlines = $inputlines | Select $outputCols | ConvertTo-Csv -Delimiter $outputDelimiter -NoTypeInformation
                     
                     # remove double quotes, tributes to https://stackoverflow.com/questions/24074205/convertto-csv-output-without-quotes
@@ -188,6 +249,7 @@ Function Split-File {
                     return $res
 
                 }
+                                
 
                 #--------------------------------------------------------------
                 # create and execute runspaces to parse in parallel
@@ -195,7 +257,9 @@ Function Split-File {
 
                 Write-Log -message "Prepare runspace pool with throttle of $( $throttleLimit ) threads in parallel"
 
-                $RunspacePool = [RunspaceFactory]::CreateRunspacePool(1, $throttleLimit)
+                # Create the runspacepool and add the session with variables and functions
+                $RunspacePool = [RunspaceFactory]::CreateRunspacePool(1,$throttleLimit,$initialsessionstate,$Host)
+                #$RunspacePool = [RunspaceFactory]::CreateRunspacePool(1, $throttleLimit)
                 $RunspacePool.Open()
                 $Jobs = [System.Collections.ArrayList]@()
 
@@ -220,6 +284,16 @@ Function Split-File {
                         $headerChunk = $false
                     }
                     
+                    # rebuild additional columns so the expression ids are unique, otherwise it fails when an expression is used in parallel processes
+                    $addCols = [System.Collections.ArrayList]@()
+                    $additionalColumns | ForEach {
+                        $addCol = $_
+                        [void]$addCols.Add(@{
+                            name = $addCol.name
+                            expression = [scriptblock]::Create( $addCol.expression.toString() )
+                        })
+                    }
+
                     $arguments = @{            
                         chunk = $chunk
                         header = $headerChunk
@@ -227,6 +301,7 @@ Function Split-File {
                         outputDelimiter = $outputDelimiter
                         outputColumns = $outputColumns
                         outputDoubleQuotes = $outputDoubleQuotes
+                        additionalColumns = $addCols
                     }
                     
                     $Job = [powershell]::Create().AddScript($scriptBlock).AddArgument($arguments)
@@ -244,12 +319,12 @@ Function Split-File {
                 Write-Log -message "Checking for results of $( $jobcount ) jobs"
 
                 # check for results
-                #Write-Host "Waiting.." -NoNewline
+                Write-Host "Waiting.." -NoNewline
                 Do {
-                #Write-Host "." -NoNewline
-                Start-Sleep -Milliseconds 500
+                    Write-Host "." -NoNewline
+                    Start-Sleep -Milliseconds 500
                 } While ( $Jobs.Result.IsCompleted -contains $false)
-                #Write-Host "All jobs completed!"
+                Write-Host "All jobs completed!"
                 
                 # put together results
                 $rows = [System.Collections.ArrayList]@()
