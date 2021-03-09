@@ -43,21 +43,6 @@ if ( $debug ) {
     
     $params = [hashtable]@{
         "scriptPath" = "C:\Apteco\Build\20210308\postextract"
-    <#
-        "TransactionType" = "Replace"
-        "Password" = "b"
-        "scriptPath" = "D:\Scripts\ELAINE\Transactional"
-        "MessageName" = "1875 / Apteco PeopleStage Training Automation"
-        "EmailFieldName" = "c_email"
-        "SmsFieldName" = ""
-        "Path" = "d:\faststats\Publish\Handel\system\Deliveries\PowerShell_1875  Apteco PeopleStage Training Automation_f29a31c9-7935-4bf6-b55c-e2794ea36dba.txt"
-        "ReplyToEmail" = ""
-        "Username" = "a"
-        "ReplyToSMS" = ""
-        "UrnFieldName" = "Kunden ID"
-        "ListName" = "1875 / Apteco PeopleStage Training Automation"
-        "CommunicationKeyFieldName" = "Communication Key"
-    #>
     }
     
 }
@@ -240,12 +225,16 @@ $extractInfos | ForEach {
 
 
 #-----------------------------------------------
-# EXTRACT ID + ADRESSFIELDS
+# EXTRACT ID + ADRESSFIELDS + GENERATE MD5 HASH
 #-----------------------------------------------
 
 $t = Measure-Command {
 
     $settings.extractDefinitions | ForEach {
+
+        #--------------------------------------------------------------
+        # extract preparation
+        #--------------------------------------------------------------
 
         $extract = $_
 
@@ -256,6 +245,7 @@ $t = Measure-Command {
 
         # Load current data from extract
         $currentExtract = $extracts.where({ $_.Table -eq $extract.name })
+
 
         #--------------------------------------------------------------
         # create the sessionstate for the runspace pool to share functions and variables
@@ -281,8 +271,6 @@ $t = Measure-Command {
             $var = [System.Management.Automation.Runspaces.SessionStateVariableEntry]::new($key,$variablesToPass.$key,"")
             $iss.Variables.Add($var)
         }
-        #$var1 = [System.Management.Automation.Runspaces.SessionStateVariableEntry]::new("extractAddressFields",$settings.extractDefinitions[0].addressFields,"")
-        #$iss.Variables.Add($var1)
 
 
         #--------------------------------------------------------------
@@ -290,20 +278,7 @@ $t = Measure-Command {
         #--------------------------------------------------------------
 
         $additionalColumns = [System.Collections.ArrayList]@(
-            #[Hashtable]@{name="ColA";expression = { 2 + 3 }}
-            #[Hashtable]@{name="ColB";expression = { 2 * 3 }}
-            #[Hashtable]@{name="ColC";expression = { [int]$_.Region * 2 }}
-            #[Hashtable]@{name="ColD";expression = { $row = $_; $addressString=[System.Collections.ArrayList]@(); @("Address","Town","Region","Postcode") | ForEach { [void]$addressString.add( $row.$_ ) } ; $addressString -join "|" }}
-            #[Hashtable]@{name="ColD";expression = {
-            #    $row = $_
-            #    $addressString=[System.Collections.ArrayList]@()
-            #    @( $extractAddressFields ) | ForEach {
-            #        [void]$addressString.add( $row.$_ )
-            #    }
-            #    $addressString -join "|" 
-            #}}
-            #[Hashtable]@{name="ColG";expression = { Get-StringHash -inputString "Hello" -hashName "MD5" }}
-            [Hashtable]@{name="ColE";expression = {
+            [Hashtable]@{name="AddressHash";expression = {
                 $row = $_
                 $addressString=[System.Collections.ArrayList]@()
                 @( $extractAddressFields ) | ForEach {
@@ -320,7 +295,8 @@ $t = Measure-Command {
             outputDelimiter = "`t"
             writeCount = 150000
             batchSize = 150000
-            chunkSize = 5000
+            chunkSize = 2000
+            throttleLimit = 30
             header = $true
             writeHeader = $true
             outputColumns = $columnsToExtract
@@ -330,22 +306,18 @@ $t = Measure-Command {
             initialsessionstate = $iss
         }
 
-        #exit 0
-
-        # Split the file and remember the ID
-        Split-File @params
-        #$extract | Add-Member -MemberType NoteProperty -Name "splitID" -Value (  )
+        # Split the file and remember the IDs
+        $extract | Add-Member -MemberType NoteProperty -Name "splitID" -Value ( Split-File @params )
 
     }
 
 }
 
-Write-Log -message "Extract of addresses done in $( $t.TotalSeconds ) seconds"
+Write-Log -message "Extract and hashing of addresses done in $( $t.TotalSeconds ) seconds"
 
-exit 0
 
 #-----------------------------------------------
-# PARSE THROUGH FILES AND GENERATE HASH
+# CHECK HASH VALUES AGAINST EXISTING VALUES IN DATABASE
 #-----------------------------------------------
 
 $t = Measure-Command {
@@ -361,36 +333,12 @@ $t = Measure-Command {
             $sf = $_
             $csv = Import-Csv -Path $sf.FullName -Delimiter "`t" -Encoding UTF8 -Verbose
 
-            # Generate the combined address string, joined with pipe character and then hash it
-            <#
-            Workflow TestParallel{
-                Foreach -parallel( $row in $csv ){
-                    $addressString=[System.Collections.ArrayList]@()
-                    $extract.addressFields | ForEach {
-                        [void]$addressString.add( $row.$_ )
-                    }
-                    $row | Add-Member -MemberType NoteProperty -Name "AddressHash" -Value ( Get-StringHash -inputString ( $addressString -join "|" ) -hashName "SHA256" )
-                }
-            }
-            
-            
-            TestParallel
-            #>
-
             foreach ($row in $csv) {
-                $addressString=[System.Collections.ArrayList]@()
-                $extract.addressFields | ForEach {
-                    [void]$addressString.add( $row.$_ )
-                }
-                # On my surface pro 7 with i5 I got 230 SHA256 hashes per second -> 220 seconds for 50k rows
-                # With MD5 it is 345 hashes per second -> 145 seconds for 50k rows
-                # In total we have to subtract around 30 seconds as this is needed to combine the address columns to a string
-                #$row | Add-Member -MemberType NoteProperty -Name "AddressHash" -Value ( $addressString -join "|" )
-                $row | Add-Member -MemberType NoteProperty -Name "AddressHash" -Value ( Get-StringHash -inputString ( $addressString -join "|" ) -hashName "MD5" )
+
             }
             
             # Export the csv file again
-            $csv | Export-Csv -Path "$( $settings.processingFolder )\$( $splitID )\test.csv" -encoding UTF8 -NoTypeInformation -Delimiter "`t" -Append
+            #$csv | Export-Csv -Path "$( $settings.processingFolder )\$( $splitID )\test.csv" -encoding UTF8 -NoTypeInformation -Delimiter "`t" -Append
 
         }
 
@@ -398,20 +346,10 @@ $t = Measure-Command {
 
 }
 
-Write-Log -message "Hashing of addresses done in $( $t.TotalSeconds ) seconds"
+Write-Log -message "Checking of address hash done in $( $t.TotalSeconds ) seconds"
 
 
 exit 0
-
-
-
-#$csv | select -first 10 *, @{name="AddressHash";expression={ Get-StringHash -inputString  -hashName "SHA256" }} | ft
-#$extract.addressFields -join "|"
-
-
-#-----------------------------------------------
-# CHECK HASH VALUES AGAINST EXISTING VALUES IN DATABASE
-#-----------------------------------------------
 
 
 #-----------------------------------------------
@@ -439,20 +377,3 @@ exit 0
 
 
 exit 0
-
-Write-Host "---------------------"
-
-# Load another script into cache
-. "$( $Env:BUILDDIR )\postextract\functions\Count-Rows.ps1"
-
-# Load all extract files
-$extractFiles = Get-ChildItem -Path "$( $Env:BUILDDIR )\extract\*.txt" -Exclude "*.stats.*"
-
-# Count all rows through script as an example
-$extractFiles | ForEach {
-    $f = $_
-    $count = Count-Rows -inputPath $f -header $true
-    Write-Host "$( $f.name ) has $( $count ) rows"
-}
-
-Write-Host "---------------------"
