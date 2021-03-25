@@ -1,3 +1,8 @@
 
 *.key
 *.sqlite
+*.csv
+*.log
+*.part*
+*.debug
+*.json
