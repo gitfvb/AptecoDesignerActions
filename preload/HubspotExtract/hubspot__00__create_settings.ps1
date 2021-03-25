@@ -65,10 +65,10 @@ $loginSettings = [PSCustomObject]@{
 #-----------------------------------------------
 
 # typically something like contacts and companies
-$objectTypesToLoad = @(
-    "contacts"
-    "companies"
-)
+$objectTypesToLoad = [hashtable]@{
+    "contacts" = [hashtable]@{}
+    "companies" = [hashtable]@{}
+}
 
 
 #-----------------------------------------------
@@ -162,3 +162,71 @@ if ( $settings.saveHapiKeyAsFile ) {
 
 }
 
+################################################
+#
+# DO SOME MORE ONLINE SETTINGS
+#
+################################################
+
+#-----------------------------------------------
+# PREPARE TOKEN
+#-----------------------------------------------
+
+if ( $settings.saveHapiKeyAsFile ) {
+    $hapikeyEncrypted = Get-Content $settings.hapiKeyFile -Encoding UTF8 # TODO [ ] use the path here from settings
+} else {
+    $hapikeyEncrypted = $settings.login.hapikey
+}
+
+$hapikey = "&hapikey=$( Get-SecureToPlaintext -String $hapikeyEncrypted )"
+
+
+#-----------------------------------------------
+# HEADERS
+#-----------------------------------------------
+
+$contentType = "application/json" #"application/json; charset=utf-8"
+
+
+#-----------------------------------------------
+# LOAD PROPERTIES
+#-----------------------------------------------
+
+<#
+This is to choose the modified dates because they have different names for different objects, even for objects natively in Hubspot. E.g.
+contacts have "lastmodifieddate"
+companies have "hs_lastmodifieddate"
+#>
+
+$objectTypes = $objectTypesToLoad.Keys
+
+$objectTypes | ForEach {
+
+    $objectType = $_
+    $object = "crm"
+    $apiVersion = "v3"
+    $archived = "false"
+    $type = "properties"
+    $url = "$( $settings.base )$( $object )/$( $apiVersion )/$( $type )/$( $objectType )?archived=$( $archived )$( $hapikey )"
+    $res = Invoke-RestMethod -Method Get -Uri $url
+
+    $settings.objectTypesToLoad.$objectType = [hashtable]@{ "updatedField" = ($res.results.name | Out-GridView -PassThru | select -first 1) }
+    
+}
+
+
+
+################################################
+#
+# PACK TOGETHER SETTINGS AND SAVE AS JSON
+#
+################################################
+
+# create json object
+$json = $settings | ConvertTo-Json -Depth 8 # -compress
+
+# print settings to console
+$json
+
+# save settings to file
+$json | Set-Content -path "$( $scriptPath )\$( $settingsFilename )" -Encoding UTF8
