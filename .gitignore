@@ -6,3 +6,5 @@
 *.sqlite
 *.log
 *.part*
+*.sqbpro
+*.zip
