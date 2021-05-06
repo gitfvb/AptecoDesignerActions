@@ -1,15 +1,5 @@
 <#
 # https://www.coolgenerator.com/ascii-text-generator
-$text = @"
-__    __       ___       __       __        ______       _______  __        ______   .______       __       ___      .__   __. 
-|  |  |  |     /   \     |  |     |  |      /  __  \     |   ____||  |      /  __  \  |   _  \     |  |     /   \     |  \ |  | 
-|  |__|  |    /  ^  \    |  |     |  |     |  |  |  |    |  |__   |  |     |  |  |  | |  |_)  |    |  |    /  ^  \    |   \|  | 
-|   __   |   /  /_\  \   |  |     |  |     |  |  |  |    |   __|  |  |     |  |  |  | |      /     |  |   /  /_\  \   |  . `  | 
-|  |  |  |  /  _____  \  |  `----.|  `----.|  `--'  |    |  |     |  `----.|  `--'  | |  |\  \----.|  |  /  _____  \  |  |\   | 
-|__|  |__| /__/     \__\ |_______||_______| \______/     |__|     |_______| \______/  | _| `._____||__| /__/     \__\ |__| \__| 
-"@
-
-$text
 #>
 
 ################################################
@@ -298,7 +288,7 @@ class EmarsysField : DCSPField {
         $params = @{
             cred = $this.emarsys.cred
             uri = "$( $this.emarsys.baseUrl)field/$( $this.id )"
-            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Delete
+            method = "Delete"
         }
         $res = Invoke-emarsys @params
         
@@ -411,7 +401,7 @@ class EmarsysMailing : DCSPMailingsEmail {
         # Call emarsys
         $params = $this.emarsys.defaultParams + @{
             uri = "$( $this.emarsys.baseUrl)email/getlaunchesofemail"
-            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            method = "Post"
             body = $bodyJson
             verbose = $true
         }
@@ -444,7 +434,7 @@ class EmarsysMailing : DCSPMailingsEmail {
         # Call emarsys
         $params = $this.emarsys.defaultParams + @{
             uri = "$( $this.emarsys.baseUrl)email/getdeliverystatus"
-            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            method = "Post"
             body = $bodyJson
             verbose = $true
         }
@@ -472,7 +462,7 @@ class EmarsysMailing : DCSPMailingsEmail {
         # Call emarsys
         $params = $this.emarsys.defaultParams + @{
             uri = "$( $this.emarsys.baseUrl)email/$( $this.id )/preview"
-            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            method = "Post"
             body = $bodyJson
             verbose = $true
         }
@@ -501,7 +491,7 @@ class EmarsysMailing : DCSPMailingsEmail {
         # Call emarsys
         $params = $this.emarsys.defaultParams + @{
             uri = "$( $this.emarsys.baseUrl)email/$( $this.id )/sendtestmail"
-            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            method = "Post"
             body = $bodyJson
             verbose = $true
         }
@@ -532,7 +522,7 @@ class EmarsysMailing : DCSPMailingsEmail {
         # Call emarsys
         $params = $this.emarsys.defaultParams + @{
             uri = "$( $this.emarsys.baseUrl)email/responses"
-            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            method = "Post"
             body = $bodyJson
             verbose = $true
         }
@@ -852,7 +842,7 @@ class Emarsys : DCSP {
         # Call emarsys
         $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)field"
-            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            method = "Post"
             body = $bodyJson
             verbose = $true
         }
@@ -1179,7 +1169,7 @@ class Emarsys : DCSP {
         # Call emarsys to create export job
         $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl )email/getcontacts"
-            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            method = "Post"
             body = ConvertTo-Json -InputObject $body -Depth 20
         }
         $exportId = Invoke-emarsys @params        
@@ -1266,7 +1256,7 @@ class Emarsys : DCSP {
         # Call emarsys to create export job
         $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl )email/getresponses"
-            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            method = "Post"
             body = ConvertTo-Json -InputObject $body -Depth 20
         }
         $exportId = Invoke-emarsys @params    
@@ -1320,7 +1310,7 @@ class Emarsys : DCSP {
         # Call emarsys
         $params = $this.defaultParams + @{
             uri = "$( $this.baseUrl)email/responses"
-            method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Post
+            method = "Post"
             body = $bodyJson
             verbose = $true
         }
@@ -1355,7 +1345,7 @@ function Invoke-emarsys {
     param (
          [Parameter(Mandatory=$false)][pscredential]$cred                                   # securestring containing username as user and secret as password
         ,[Parameter(Mandatory=$false)][System.Uri]$uri = "https://api.emarsys.net/api/v2/"  # default url to use
-        ,[Parameter(Mandatory=$false)][Microsoft.PowerShell.Commands.WebRequestMethod]$method = [Microsoft.PowerShell.Commands.WebRequestMethod]::Get
+        ,[Parameter(Mandatory=$false)][String]$method = "Get"
         ,[Parameter(Mandatory=$false)][String]$outFile = ""
         ,[Parameter(Mandatory=$false)][System.Object]$body = $null
     )
