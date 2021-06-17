@@ -36,7 +36,11 @@ function Add-HttpQueryPart
 
     # Add key/value from input hashtable
     foreach ($key in $QueryParameter.Keys) {
-        $nvCollection.Add($key, $QueryParameter.$key)
+        $value = $QueryParameter.$key
+        If ( $value -is [scriptblock] ) {
+            $value = $QueryParameter.$key.InvokeReturnAsIs()
+        }
+        $nvCollection.Add($key, $value)
     }
     
     # Build the uri
