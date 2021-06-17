@@ -15,6 +15,16 @@ $loadDefs = [System.Collections.ArrayList]@(
         "urn" = "id"
         "extract" = @(
             [PSCustomObject]@{
+                "type" = "first"
+                "onlyOnFirstLoad" = $false
+                "parameters" = [hashtable]@{
+                    "createdAfter" = $earliestDate
+                    #"pageSize" = 3
+                }
+                "rememberUpcomingLink" = $true
+                # do this to check if lists have been deleted or e.g. renamed
+            }
+            [PSCustomObject]@{
                 "type" = "full"
                 "onlyOnFirstLoad" = $false
                 "parameters" = [hashtable]@{
@@ -22,7 +32,6 @@ $loadDefs = [System.Collections.ArrayList]@(
                     #"pageSize" = 3
                 }
                 "rememberUpcomingLink" = $true
-
                 # do this to check if lists have been deleted or e.g. renamed
             }
             [PSCustomObject]@{
@@ -42,6 +51,14 @@ $loadDefs = [System.Collections.ArrayList]@(
                 "parent" = [ScriptBlock]{ $parentObj.id }
                 "filter" = [ScriptBlock]{ @("STANDARD";"DYANMIC") -contains $parentObj.type }
                 "extract" = @(
+                    [PSCustomObject]@{
+                        "type" = "first"
+                        "parameters" = [hashtable]@{
+                            "subscribedTo" = [ScriptBlock]{ $parentObj.id }
+                            #"pageSize" = 3
+                        }
+                        "rememberUpcomingLink" = $false
+                    }
                     [PSCustomObject]@{
                         "type" = "full"
                         "parameters" = [hashtable]@{
@@ -71,8 +88,17 @@ $loadDefs = [System.Collections.ArrayList]@(
         "urn" = "id"
         "extract" = @(
             [PSCustomObject]@{
+                "type" = "first"
+                "parameters" = [hashtable]@{
+                    "createdAfter" = $earliestDate
+                    "embedded" = "inx:response-statistics,inx:sending-statistics"
+                    #"pageSize" = 3
+                }
+                "rememberUpcomingLink" = $true
+                # do this to check if mailings have been deleted or e.g. renamed
+            }
+            [PSCustomObject]@{
                 "type" = "full"
-                "onlyOnFirstLoad" = $false
                 "parameters" = [hashtable]@{
                     "createdAfter" = $earliestDate
                     "embedded" = "inx:response-statistics,inx:sending-statistics"
@@ -97,8 +123,11 @@ $loadDefs = [System.Collections.ArrayList]@(
         "urn" = "id"
         "extract" = @(
             [PSCustomObject]@{
+                "type" = "first"
+                "rememberUpcomingLink" = $false
+            }
+            [PSCustomObject]@{
                 "type" = "full"
-                "onlyOnFirstLoad" = $false
                 "rememberUpcomingLink" = $false
             }
             [PSCustomObject]@{
@@ -116,12 +145,17 @@ $loadDefs = [System.Collections.ArrayList]@(
         "urn" = "id"
         "extract" = @(
             [PSCustomObject]@{
-                "type" = "full"
-                "onlyOnFirstLoad" = $true
+                "type" = "first"
                 "parameters" = [hashtable]@{
                     "sendingsFinishedAfterDate" = $earliestDate
                     #"pageSize" = 3
                 }
+                "rememberUpcomingLink" = $true
+            }
+            [PSCustomObject]@{
+                "type" = "full"
+                "nextLink" = $lastSession.nextLinks.where( { $_.name -eq "sendings" } ).link
+                # remember the lastID URL to receive new lists
                 "rememberUpcomingLink" = $true
             }
             [PSCustomObject]@{
@@ -141,6 +175,9 @@ $loadDefs = [System.Collections.ArrayList]@(
                 "parent" = [ScriptBlock]{ $parentObj.id }
                 "extract" = @(
                     [PSCustomObject]@{
+                        "type" = "first"
+                    }
+                    [PSCustomObject]@{
                         "type" = "full"
                     }
                     [PSCustomObject]@{
@@ -159,12 +196,22 @@ $loadDefs = [System.Collections.ArrayList]@(
         "urn" = "id"
         "extract" = @(
             [PSCustomObject]@{
-                "type" = "full"
-                "onlyOnFirstLoad" = $false
+                "type" = "first"
                 "parameters" = [hashtable]@{
                     "attributes" = [ScriptBlock]{
                         ( $inxArr | where { $_.object -eq "attributes"  } | ForEach { ConvertFrom-Json $_.payload  } | select name ).name -join ","
                     }
+                    #"lastModifiedSince" = $lastLoad
+                }
+                "rememberUpcomingLink" = $true
+            }
+            [PSCustomObject]@{
+                "type" = "full"
+                "parameters" = [hashtable]@{
+                    "attributes" = [ScriptBlock]{
+                        ( $inxArr | where { $_.object -eq "attributes"  } | ForEach { ConvertFrom-Json $_.payload  } | select name ).name -join ","
+                    }
+                    "lastModifiedSince" = $lastLoad
                 }
                 "rememberUpcomingLink" = $true
             }
@@ -190,11 +237,15 @@ $loadDefs = [System.Collections.ArrayList]@(
         "urn" = "id"
         "extract" = @(
             [PSCustomObject]@{
-                "type" = "full"
-                "onlyOnFirstLoad" = $true
+                "type" = "first"
                 "parameters" = [hashtable]@{
                     "startDate" = $earliestDate
                 }
+                "rememberUpcomingLink" = $true
+            }
+            [PSCustomObject]@{
+                "type" = "full"
+                "nextLink" = $lastSession.nextLinks.where( { $_.name -eq "events/subscriptions"  } ).link
                 "rememberUpcomingLink" = $true
             }
             [PSCustomObject]@{
@@ -213,11 +264,15 @@ $loadDefs = [System.Collections.ArrayList]@(
         "urn" = "id"
         "extract" = @(
             [PSCustomObject]@{
-                "type" = "full"
-                "onlyOnFirstLoad" = $true
+                "type" = "first"
                 "parameters" = [hashtable]@{
                     "startDate" = $earliestDate
                 }
+                "rememberUpcomingLink" = $true
+            }
+            [PSCustomObject]@{
+                "type" = "full"
+                "nextLink" = $lastSession.nextLinks.where( { $_.name -eq "events/unsubscriptions"  } ).link
                 "rememberUpcomingLink" = $true
             }
             [PSCustomObject]@{
@@ -237,8 +292,12 @@ $loadDefs = [System.Collections.ArrayList]@(
         "parent" = [ScriptBlock]{ $_.listId }
         "extract" = @(
             [PSCustomObject]@{
+                "type" = "first"
+                "rememberUpcomingLink" = $true
+            }
+            [PSCustomObject]@{
                 "type" = "full"
-                "onlyOnFirstLoad" = $true
+                "nextLink" = $lastSession.nextLinks.where( { $_.name -eq "events/tracking-permissions"  } ).link
                 "rememberUpcomingLink" = $true
             }
             [PSCustomObject]@{
@@ -258,8 +317,11 @@ $loadDefs = [System.Collections.ArrayList]@(
         "parent" = [ScriptBlock]{ $_.listId }
         "extract" = @(
             [PSCustomObject]@{
+                "type" = "first"
+                "rememberUpcomingLink" = $true
+            }
+            [PSCustomObject]@{
                 "type" = "full"
-                "onlyOnFirstLoad" = $false
                 "rememberUpcomingLink" = $true
             }
             [PSCustomObject]@{
@@ -279,11 +341,15 @@ $loadDefs = [System.Collections.ArrayList]@(
         "parent" = [ScriptBlock]{ $_.sendingId }
         "extract" = @(
             [PSCustomObject]@{
-                "type" = "full"
-                "onlyOnFirstLoad" = $true
+                "type" = "first"
                 "parameters" = [hashtable]@{
                     "startDate" = $earliestDate
                 }
+                "rememberUpcomingLink" = $true
+            }
+            [PSCustomObject]@{
+                "type" = "full"
+                "nextLink" = $lastSession.nextLinks.where( { $_.name -eq "bounces"  } ).link
                 "rememberUpcomingLink" = $true
             }
             [PSCustomObject]@{
@@ -303,14 +369,18 @@ $loadDefs = [System.Collections.ArrayList]@(
         "parent" = [ScriptBlock]{ $_.sendingId }
         "extract" = @(
             [PSCustomObject]@{
-                "type" = "full"
-                "onlyOnFirstLoad" = $true
+                "type" = "first"
                 "parameters" = [hashtable]@{
                     "startDate" = $earliestDate
                     "embedded" = "inx:recipient"
                     "recipientAttributes" = @("urn") -join ","
                     "trackedOnly" = $true
                 }
+                "rememberUpcomingLink" = $true
+            }
+            [PSCustomObject]@{
+                "type" = "full"
+                "nextLink" = $lastSession.nextLinks.where( { $_.name -eq "web-beacon-hits"  } ).link
                 "rememberUpcomingLink" = $true
             }
             [PSCustomObject]@{
@@ -330,14 +400,18 @@ $loadDefs = [System.Collections.ArrayList]@(
         "parent" = [ScriptBlock]{ $_.sendingId }
         "extract" = @(
             [PSCustomObject]@{
-                "type" = "full"
-                "onlyOnFirstLoad" = $true
+                "type" = "first"
                 "parameters" = [hashtable]@{
                     "startDate" = $earliestDate
                     "embedded" = "inx:recipient"
                     "recipientAttributes" = @("urn") -join ","
                     "trackedOnly" = $true
                 }
+                "rememberUpcomingLink" = $true
+            }
+            [PSCustomObject]@{
+                "type" = "full"
+                "nextLink" = $lastSession.nextLinks.where( { $_.name -eq "clicks"  } ).link
                 "rememberUpcomingLink" = $true
             }
             [PSCustomObject]@{

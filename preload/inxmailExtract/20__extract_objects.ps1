@@ -20,7 +20,7 @@ $debug = $true
 
 if ( $debug ) {
     $params = [hashtable]@{
-	    scriptPath= "D:\Scripts\Inxmail\Mailing"
+	    method = "first" # first|full|delta
     }
 }
 
@@ -168,8 +168,7 @@ if ( $paramsExisting ) {
 
 $extractTimestamp = Get-Unixtime 
 $earliestDate = "2021-01-10T00:00:00Z" # [Datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssK")
-$extractMode = "full" # full|delta
-#$extractMode = "delta" # full|delta
+$extractMode = $params.method 
 
 
 #-----------------------------------------------
@@ -314,14 +313,14 @@ function Get-Inxmail {
                                                     @{name="parenturn";expression={ $loadDef.parent.InvokeReturnAsIs() }},
                                                     @{name="extract";expression={ $extractTimestamp }},
                                                     @{name="payload";expression={ ConvertTo-Json -InputObject $_ <#-Compress#> }}
-                        try {
+                        #try {
                             [void]$inxArr.AddRange(
                                 [System.Collections.ArrayList]@( $value )
                             )
-                        } catch {
+                        #} catch {
                         #    [void]$inxArr.Add($value)
-                            "Hello world"
-                        }
+                        #    "Hello world"
+                        #}
                     }
 
                     $params.Uri = $res._links.next.href 
@@ -330,7 +329,7 @@ function Get-Inxmail {
 
                 # Link for next time
                 $nextLink = $res._links."inx:upcoming".href
-                Write-Host $nextLink
+                #Write-Host $nextLink
                 if ( $nextLink -and $extractSettings.rememberUpcomingLink ) {
                     [void]$script:nextLinks.Add([PSCustomObject]@{
                         name = $objectUrl
@@ -343,13 +342,13 @@ function Get-Inxmail {
                     $records | ForEach {
                         $record = $_
                         $subRes = Get-Inxmail -definition $loadDef.subObjects -parentObj $record -extractMode $extractMode -firstLoad $firstLoad
-                        try {
-                        [void]$inxArr.AddRange( 
-                            [System.Collections.ArrayList]@( $subRes )
-                        )
-                        } catch {
-                            "Hallo Welt"
-                        }
+                        #try {
+                            [void]$inxArr.AddRange( 
+                                [System.Collections.ArrayList]@( $subRes )
+                            )
+                        #} catch {
+                        #    "Hallo Welt"
+                        #}
                     }
                 }
             }
