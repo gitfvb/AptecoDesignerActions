@@ -12,7 +12,7 @@ Param(
 # DEBUG SWITCH
 #-----------------------------------------------
 
-$debug = $true
+$debug = $false
 
 #-----------------------------------------------
 # INPUT PARAMETERS, IF DEBUG IS TRUE
@@ -127,6 +127,12 @@ Get-ChildItem -Path ".\$( $functionsSubfolder )" -Recurse -Include @("*.ps1") | 
     "... $( $_.FullName )"
 }
 
+# Load all exe and dll files in subfolder
+$libExecutables = Get-ChildItem -Path ".\$( $libSubfolder )" -Recurse -Include @("*.exe","*.dll") 
+$libExecutables | ForEach {
+    "... $( $_.FullName )"
+}
+
 
 ################################################
 #
@@ -160,7 +166,6 @@ if ( $paramsExisting ) {
 # PROGRAM
 #
 ################################################
-
 
 #-----------------------------------------------
 # MORE SETTINGs
@@ -403,7 +408,113 @@ $json
 $json | Set-Content -path $lastSessionFile -Encoding UTF8
 
 
+################################################
+#
+# PUT DATA INTO SQLITE DATABASE
+#
+################################################
 
+#-----------------------------------------------
+# PREPARE CONNECTION
+#-----------------------------------------------
+
+sqlite-Load-Assemblies -dllFile "C:\Program Files\Apteco\FastStats Designer\sqlite-netFx46-binary-x64-2015-1.0.113.0\System.Data.SQLite.dll"
+#$sqliteConnection = sqlite-Open-Connection -sqliteFile ":memory:" -new
+$sqliteConnection = sqlite-Open-Connection -sqliteFile ".\inxmail.sqlite" -new
+
+
+#-----------------------------------------------
+# CREATE TABLE IF IT NOT EXISTS
+#-----------------------------------------------
+
+# Create temporary table
+$sqliteCommand = $sqliteConnection.CreateCommand()
+$sqliteCommand.CommandText = @"
+CREATE TABLE IF NOT EXISTS "Data" (
+	"object"	TEXT,
+	"urn"	    INTEGER,
+    "parenturn"	INTEGER,
+	"extract"	INTEGER,
+    "payload"   TEXT
+);
+"@
+$sqliteCommand.ExecuteNonQuery()
+
+
+#-----------------------------------------------
+# PREPARE INSERT STATEMENT
+#-----------------------------------------------
+
+# https://docs.microsoft.com/de-de/dotnet/standard/data/sqlite/bulk-insert
+$sqliteTransaction = $sqliteConnection.BeginTransaction()
+$sqliteCommand = $sqliteConnection.CreateCommand()
+$sqliteCommand.CommandText = "INSERT INTO data (object, urn, parenturn, extract, payload) VALUES (:object, :urn, :parenturn, :extract, :payload)"
+
+
+#-----------------------------------------------
+# STATEMENT PARAMETERS
+#-----------------------------------------------
+
+$sqliteParameterObject = $sqliteCommand.CreateParameter()
+$sqliteParameterObject.ParameterName = ":object"
+$sqliteCommand.Parameters.Add($sqliteParameterObject)
+
+$sqliteParameterUrn = $sqliteCommand.CreateParameter()
+$sqliteParameterUrn.ParameterName = ":urn"
+$sqliteCommand.Parameters.Add($sqliteParameterUrn)
+
+$sqliteParameterParentUrn = $sqliteCommand.CreateParameter()
+$sqliteParameterParentUrn.ParameterName = ":parenturn"
+$sqliteCommand.Parameters.Add($sqliteParameterParentUrn)
+
+$sqliteParameterExtract = $sqliteCommand.CreateParameter()
+$sqliteParameterExtract.ParameterName = ":extract"
+$sqliteCommand.Parameters.Add($sqliteParameterExtract)
+
+$sqliteParameterPayload = $sqliteCommand.CreateParameter()
+$sqliteParameterPayload.ParameterName = ":payload"
+$sqliteCommand.Parameters.Add($sqliteParameterPayload)
+
+
+#-----------------------------------------------
+# INSERT DATA AND COMMIT
+#-----------------------------------------------
+
+# Inserting the data with 1m records and 2 columns took 77 seconds
+$t = Measure-Command {
+    # Insert the data
+    $inxObjects | ForEach {
+        $sqliteParameterObject.Value = $_.object
+        $sqliteParameterUrn.Value = $_.urn
+        $sqliteParameterParentUrn.Value = $_.parenturn
+        $sqliteParameterExtract.Value = $_.extract
+        $sqliteParameterPayload.Value = $_.payload
+        [void]$sqliteCommand.ExecuteNonQuery()
+    }
+}
+
+"Inserted the data in $( $t.TotalSeconds ) seconds"
+
+# Commit the transaction
+$sqliteTransaction.Commit()
+
+
+#-----------------------------------------------
+# CHECK RESULT
+#-----------------------------------------------
+
+exit 0
+
+# Read the data
+$t = Measure-Command {
+    sqlite-Load-Data -sqlCommand "Select count(*) from data" -connection $sqliteConnection | ft
+}
+
+"Queried the data in $( $t.TotalSeconds ) seconds"
+
+
+# Close the connection
+$sqliteConnection.Dispose()
 
 
 
@@ -491,37 +602,49 @@ exit 0
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     $ curl 'https://api.inxmail.com/customer/rest/v1/recipients?lastModifiedSince=2018-01-16T11:42:32Z' -i -X GET
     #>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+################################################
+#
+# CREATE SUCCESS FILE
+#
+################################################
+
+if ( $settings.createBuildNow ) {
+    Write-Log -message "Creating file '$( $settings.buildNowFile )'"
+    [datetime]::Now.ToString("yyyyMMddHHmmss") | Out-File -FilePath $settings.buildNowFile -Encoding utf8 -Force
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

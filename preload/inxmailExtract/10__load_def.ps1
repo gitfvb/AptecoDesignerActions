@@ -86,6 +86,7 @@ $loadDefs = [System.Collections.ArrayList]@(
         "description" = "mailings"
         "object" = "mailings" 
         "urn" = "id"
+        "parent" = [ScriptBlock]{ $_.listId }
         "extract" = @(
             [PSCustomObject]@{
                 "type" = "first"
@@ -143,6 +144,7 @@ $loadDefs = [System.Collections.ArrayList]@(
         "description" = "sendings"
         "object" = "sendings" #/sendings{?mailingIds,listIds,sendingsFinishedBeforeDate,sendingsFinishedAfterDate}
         "urn" = "id"
+        "parent" = [ScriptBlock]{ $_.mailingId }
         "extract" = @(
             [PSCustomObject]@{
                 "type" = "first"
