@@ -87,7 +87,7 @@ Set-Location -Path $scriptPath
 $functionsSubfolder = "functions"
 #$libSubfolder = "lib"
 $settingsFilename = "settings.json"
-$moduleName = "INXRESPONSES"
+$moduleName = "INXSYNC"
 $processId = [guid]::NewGuid()
 
 # Load settings
