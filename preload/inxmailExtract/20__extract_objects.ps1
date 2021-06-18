@@ -106,7 +106,7 @@ if ( $settings.changeTLS ) {
 
 # more settings
 $logfile = $settings.logfile
-$lastSessionFile = "$( $scriptPath )\lastsession.json"
+$lastSessionFile = $settings.sessionFile
 
 # append a suffix, if in debug mode
 if ( $debug ) {
@@ -175,6 +175,9 @@ $extractTimestamp = Get-Unixtime
 $earliestDate = "2021-01-10T00:00:00Z" # [Datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssK")
 $extractMode = $params.method 
 
+Write-Log -message "Doing extract mode '$( $extractMode )'"
+
+
 
 #-----------------------------------------------
 # LOAD LAST EXTRACT
@@ -185,18 +188,23 @@ If ( Test-Path -Path $lastSessionFile ) {
     $startFromScratch = $false
     $lastSession = Get-Content -Path "$( $lastSessionFile )" -Encoding UTF8 -Raw | ConvertFrom-Json
     $lastLoad = ( Get-DateTimeFromUnixtime -unixtime $lastSession.timestamp ).ToString("yyyy-MM-ddTHH:mm:ssK")
+    Write-Log -message "Found session file, last load was at '$( $lastLoad )'"
 
 # If there is no recent session available
 } else {
     $startFromScratch = $true
     $lastSession = [PSCustomObject]@{}
     $lastLoad = $earliestDate
+    Write-Log -message "No session file found"
+
 }
 
 
 #-----------------------------------------------
 # AUTHENTICATION
 #-----------------------------------------------
+
+Write-Log -message "Preparing the authentication"
 
 $apiRoot = $settings.base
 #$contentType = "application/json; charset=utf-8"
@@ -210,7 +218,9 @@ $header = @{
 # LOAD DEFINITION
 #-----------------------------------------------
 
-# TODO [ ] Eventually add a "first" load definition
+# TODO [x] Eventually add a "first" load definition
+
+Write-Log -message "Loading sync definitions"
 
 . ".\10__load_def.ps1"
 
@@ -219,6 +229,7 @@ $header = @{
 # LOAD DATA
 #-----------------------------------------------
 
+Write-Log -message "Loading function for syncing inxmail data"
 function Get-Inxmail {
     [CmdletBinding()]
     param (
@@ -282,6 +293,8 @@ function Get-Inxmail {
                     $objectUrl = $loadDef.object
                 }
 
+                Write-Log -message "Loading '$( $objectUrl )'"
+
                 # Generate URI and additional query parameters
                 if ( $extractSettings.nextLink ) {
                     $uri = $extractSettings.nextLink
@@ -304,9 +317,33 @@ function Get-Inxmail {
                 # Load data in pages
                 Do {
 
+                    Write-Log -message "Requesting $( $params.Uri )"
+
                     $res = $null
-                    $res = Invoke-RestMethod @params
-                
+                    #$res = Invoke-RestMethod @params
+                    $result = Invoke-WebRequest @params # Doing webrequests to read the current api limits
+                    $res = [System.Text.Encoding]::UTF8.GetString($result.Content) | ConvertFrom-Json
+
+                    
+                    <#
+
+                     TODO [ ] implement the ratelimits (current 600 per minute). Just set a timer and wait until calls are resetted. This can be called like:
+
+                    $result.Headers.Keys | where { $_ -like "x-ratelimit*" }
+                    x-ratelimit-limit
+                    x-ratelimit-remaining
+                    x-ratelimit-reset
+
+                    and looks like 
+
+                    Key                       Value                                                                 
+                    ---                       -----                                                                 
+                    x-ratelimit-limit         600                                                                   
+                    x-ratelimit-remaining     599                                                                   
+                    x-ratelimit-reset         59         
+                    
+                    #>
+                    
                     # Parse the data
                     $records = [System.Collections.ArrayList]@()
                     if ( $res._embedded ) {
@@ -317,6 +354,7 @@ function Get-Inxmail {
                                                     @{name="urn";expression={ $_.$urnFieldName }},
                                                     @{name="parenturn";expression={ $loadDef.parent.InvokeReturnAsIs() }},
                                                     @{name="extract";expression={ $extractTimestamp }},
+                                                    @{name="method";expression={ $extractSettings.type }},
                                                     @{name="payload";expression={ ConvertTo-Json -InputObject $_ <#-Compress#> }}
                         #try {
                             [void]$inxArr.AddRange(
@@ -378,34 +416,17 @@ $loadParameters = @{
     "extractMode" = $extractMode
     "firstLoad" = $startFromScratch
 }
+
+Write-Log -message "Loading inxmail data now"
+
 $inxObjects.AddRange(( Get-Inxmail @loadParameters ))
 
-$inxObjects | Out-GridView
+#$inxObjects | Out-GridView
 #$inxObjects | where { $_.object -eq "events/tracking-permissions" -and $_.parentUrn -eq '4'  } | Out-GridView
 
 # TODO [x] Work out, if we have newer links -> Is this needed? We still get the upcoming link, even when there was no result
 
-
-################################################
-#
-# PACK TOGETHER RESULTS AND SAVE AS JSON
-#
-################################################
-
-$session = [PSCustomObject]@{
-    timestamp = $extractTimestamp
-    nextLinks = $nextLinks
-}
-
-# create json object
-# weil json-Dateien sind sehr einfach portabel
-$json = $session | ConvertTo-Json -Depth 20 # -compress
-
-# print settings to console
-$json
-
-# save settings to file
-$json | Set-Content -path $lastSessionFile -Encoding UTF8
+$countModifiedRecords = ( $inxObjects | where { $_.object -ne "attributes" } | measure ).count
 
 
 ################################################
@@ -414,18 +435,51 @@ $json | Set-Content -path $lastSessionFile -Encoding UTF8
 #
 ################################################
 
+# Leave this execution, no new data
+if ( $countModifiedRecords -eq 0) {
+    Write-Log -message "No new data besides attributes, doing nothing now"
+    exit 0
+}
+
 #-----------------------------------------------
 # PREPARE CONNECTION
 #-----------------------------------------------
 
-sqlite-Load-Assemblies -dllFile "C:\Program Files\Apteco\FastStats Designer\sqlite-netFx46-binary-x64-2015-1.0.113.0\System.Data.SQLite.dll"
-#$sqliteConnection = sqlite-Open-Connection -sqliteFile ":memory:" -new
-$sqliteConnection = sqlite-Open-Connection -sqliteFile ".\inxmail.sqlite" -new
+Write-Log -message "Loading sqlite assembly from '$( $settings.sqliteDll )'"
 
+sqlite-Load-Assemblies -dllFile $settings.sqliteDll
+
+Write-Log -message "Establishing connection to sqlite database '$( $settings.sqliteDB )'"
+
+$retries = 10
+$retrycount = 0
+$secondsDelay = 2
+$completed = $false
+
+while (-not $completed) {
+    try {
+        #$sqliteConnection = sqlite-Open-Connection -sqliteFile ":memory:" -new
+        $sqliteConnection = sqlite-Open-Connection -sqliteFile "$( $settings.sqliteDB )" -new
+        Write-Log -message "Connection succeeded."
+        $completed = $true
+    } catch [System.Management.Automation.MethodInvocationException] {
+        if ($retrycount -ge $retries) {
+            Write-Log -message "Connection failed the maximum number of $( $retries ) times." -severity ([LogSeverity]::ERROR)
+            throw $_
+            exit 0
+        } else {
+            Write-Log -message "Connection failed $( $retrycount ) times. Retrying in $( $secondsDelay ) seconds." -severity ([LogSeverity]::WARNING)
+            Start-Sleep -Seconds $secondsDelay
+            $retrycount++
+        }
+    }
+}
 
 #-----------------------------------------------
 # CREATE TABLE IF IT NOT EXISTS
 #-----------------------------------------------
+
+Write-Log -message "Creating table for inxmail data, if it does not exist"
 
 # Create temporary table
 $sqliteCommand = $sqliteConnection.CreateCommand()
@@ -435,20 +489,23 @@ CREATE TABLE IF NOT EXISTS "Data" (
 	"urn"	    INTEGER,
     "parenturn"	INTEGER,
 	"extract"	INTEGER,
+    "method"    TEXT,
     "payload"   TEXT
 );
 "@
-$sqliteCommand.ExecuteNonQuery()
+[void]$sqliteCommand.ExecuteNonQuery()
 
 
 #-----------------------------------------------
 # PREPARE INSERT STATEMENT
 #-----------------------------------------------
 
+Write-Log -message "Preparing for inserting data"
+
 # https://docs.microsoft.com/de-de/dotnet/standard/data/sqlite/bulk-insert
 $sqliteTransaction = $sqliteConnection.BeginTransaction()
 $sqliteCommand = $sqliteConnection.CreateCommand()
-$sqliteCommand.CommandText = "INSERT INTO data (object, urn, parenturn, extract, payload) VALUES (:object, :urn, :parenturn, :extract, :payload)"
+$sqliteCommand.CommandText = "INSERT INTO data (object, urn, parenturn, extract, method, payload) VALUES (:object, :urn, :parenturn, :extract, :method, :payload)"
 
 
 #-----------------------------------------------
@@ -457,28 +514,34 @@ $sqliteCommand.CommandText = "INSERT INTO data (object, urn, parenturn, extract,
 
 $sqliteParameterObject = $sqliteCommand.CreateParameter()
 $sqliteParameterObject.ParameterName = ":object"
-$sqliteCommand.Parameters.Add($sqliteParameterObject)
+[void]$sqliteCommand.Parameters.Add($sqliteParameterObject)
 
 $sqliteParameterUrn = $sqliteCommand.CreateParameter()
 $sqliteParameterUrn.ParameterName = ":urn"
-$sqliteCommand.Parameters.Add($sqliteParameterUrn)
+[void]$sqliteCommand.Parameters.Add($sqliteParameterUrn)
 
 $sqliteParameterParentUrn = $sqliteCommand.CreateParameter()
 $sqliteParameterParentUrn.ParameterName = ":parenturn"
-$sqliteCommand.Parameters.Add($sqliteParameterParentUrn)
+[void]$sqliteCommand.Parameters.Add($sqliteParameterParentUrn)
 
 $sqliteParameterExtract = $sqliteCommand.CreateParameter()
 $sqliteParameterExtract.ParameterName = ":extract"
-$sqliteCommand.Parameters.Add($sqliteParameterExtract)
+[void]$sqliteCommand.Parameters.Add($sqliteParameterExtract)
+
+$sqliteParameterMethod = $sqliteCommand.CreateParameter()
+$sqliteParameterMethod.ParameterName = ":method"
+[void]$sqliteCommand.Parameters.Add($sqliteParameterMethod)
 
 $sqliteParameterPayload = $sqliteCommand.CreateParameter()
 $sqliteParameterPayload.ParameterName = ":payload"
-$sqliteCommand.Parameters.Add($sqliteParameterPayload)
+[void]$sqliteCommand.Parameters.Add($sqliteParameterPayload)
 
 
 #-----------------------------------------------
 # INSERT DATA AND COMMIT
 #-----------------------------------------------
+
+Write-Log -message "Inserting $( $inxObjects.Count ) rows"
 
 # Inserting the data with 1m records and 2 columns took 77 seconds
 $t = Measure-Command {
@@ -488,12 +551,13 @@ $t = Measure-Command {
         $sqliteParameterUrn.Value = $_.urn
         $sqliteParameterParentUrn.Value = $_.parenturn
         $sqliteParameterExtract.Value = $_.extract
+        $sqliteParameterMethod.Value = $_.method
         $sqliteParameterPayload.Value = $_.payload
         [void]$sqliteCommand.ExecuteNonQuery()
     }
 }
 
-"Inserted the data in $( $t.TotalSeconds ) seconds"
+Write-Log -message "Inserted the data in $( $t.TotalSeconds ) seconds and will commit now"
 
 # Commit the transaction
 $sqliteTransaction.Commit()
@@ -503,22 +567,22 @@ $sqliteTransaction.Commit()
 # CHECK RESULT
 #-----------------------------------------------
 
-exit 0
-
 # Read the data
 $t = Measure-Command {
-    sqlite-Load-Data -sqlCommand "Select count(*) from data" -connection $sqliteConnection | ft
+    $count = sqlite-Load-Data -sqlCommand "Select count(*) as c from data where extract = '$( $extractTimestamp )'" -connection $sqliteConnection
 }
 
-"Queried the data in $( $t.TotalSeconds ) seconds"
+Write-Log -message "Queried the data in $( $t.TotalSeconds ) seconds, inserted '$( $count.c )' rows in extract '$( $extractTimestamp )'"
 
+
+Write-Log -message "Closing connection to sqlite database"
 
 # Close the connection
 $sqliteConnection.Dispose()
 
 
 
-exit 0
+
 
 
 
@@ -612,9 +676,55 @@ exit 0
 
 
 
+<#
+
+# TODO [ ] Database can be locked like
+
+Creating table for inxmail data, if it does not exist
+Ausnahme beim Aufrufen von "ExecuteNonQuery" mit 0 Argument(en):  "database is locked
+database is locked"
+In C:\Users\Florian\Documents\GitHub\AptecoDesignerActions\preload\inxmailExtract\20__extract_objects.ps1:520 Zeichen:1
++ [void]$sqliteCommand.ExecuteNonQuery()
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [], MethodInvocationException
+    + FullyQualifiedErrorId : SQLiteException
+
+Preparing for inserting data
+Ausnahme beim Aufrufen von "BeginTransaction" mit 0 Argument(en):  "database is locked
+database is locked"
+In C:\Users\Florian\Documents\GitHub\AptecoDesignerActions\preload\inxmailExtract\20__extract_objects.ps1:530 Zeichen:1
++ $sqliteTransaction = $sqliteConnection.BeginTransaction()
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [], MethodInvocationException
+    + FullyQualifiedErrorId : SQLiteException
+
+#>
 
 
 
+
+################################################
+#
+# PACK TOGETHER RESULTS AND SAVE AS JSON
+#
+################################################
+
+Write-Log -message "Writing session file to '$( $lastSessionFile )'"
+
+$session = [PSCustomObject]@{
+    timestamp = $extractTimestamp
+    nextLinks = $nextLinks
+}
+
+# create json object
+# weil json-Dateien sind sehr einfach portabel
+$json = $session | ConvertTo-Json -Depth 20 # -compress
+
+# print settings to console
+$json
+
+# save settings to file
+$json | Set-Content -path $lastSessionFile -Encoding UTF8
 
 
 
@@ -624,9 +734,11 @@ exit 0
 #
 ################################################
 
+Write-Log -message "Checking, if a build file should be generated"
+
 if ( $settings.createBuildNow ) {
     Write-Log -message "Creating file '$( $settings.buildNowFile )'"
-    [datetime]::Now.ToString("yyyyMMddHHmmss") | Out-File -FilePath $settings.buildNowFile -Encoding utf8 -Force
+    $extractTimestamp | Out-File -FilePath $settings.buildNowFile -Encoding utf8 -Force
 }
 
 
