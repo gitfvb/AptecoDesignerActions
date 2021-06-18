@@ -128,6 +128,10 @@ $loadDefs = [System.Collections.ArrayList]@(
                 "rememberUpcomingLink" = $false
             }
             [PSCustomObject]@{
+                "type" = "daily"
+                "rememberUpcomingLink" = $false
+            }
+            [PSCustomObject]@{
                 "type" = "full"
                 "rememberUpcomingLink" = $false
             }
@@ -199,6 +203,16 @@ $loadDefs = [System.Collections.ArrayList]@(
         "extract" = @(
             [PSCustomObject]@{
                 "type" = "first"
+                "parameters" = [hashtable]@{
+                    "attributes" = [ScriptBlock]{
+                        ( $inxArr | where { $_.object -eq "attributes"  } | ForEach { ConvertFrom-Json $_.payload  } | select name ).name -join ","
+                    }
+                    #"lastModifiedSince" = $lastLoad
+                }
+                "rememberUpcomingLink" = $true
+            }
+            [PSCustomObject]@{
+                "type" = "daily" # TODO [ ] Is there a better way to recognise removed records?
                 "parameters" = [hashtable]@{
                     "attributes" = [ScriptBlock]{
                         ( $inxArr | where { $_.object -eq "attributes"  } | ForEach { ConvertFrom-Json $_.payload  } | select name ).name -join ","
