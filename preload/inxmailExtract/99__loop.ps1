@@ -25,6 +25,9 @@ Do {
             method = "full"
             scriptPath = $scriptPath
         }
+
+        $i += 1
+
         
     } else {
 
