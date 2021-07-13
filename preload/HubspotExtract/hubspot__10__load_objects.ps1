@@ -326,6 +326,8 @@ Switch ( $extractMethod ) {
         $objectTypesToLoad | ForEach {
             
             $objectType = $_
+            $objectSettings = $settings.objectTypesToLoad.$objectType
+
             $object = "crm"
             $apiVersion = "v3"
             $limit = $settings.pageLimitGet
@@ -333,6 +335,7 @@ Switch ( $extractMethod ) {
             $props = $properties.$objectType
             $type = "objects"
             $url = "$( $settings.base )$( $object )/$( $apiVersion )/$( $type )/$( $objectType )?limit=$( $limit )&archived=$( $archived )&properties=$( $props.name -join "," )$( $hapikey )"
+
             
             $loadArchivedInProgress = $false
             $finish = $false
@@ -356,7 +359,7 @@ Switch ( $extractMethod ) {
                 } else {
 
                     # Check if archived records should be loaded, too
-                    if ( $settings.loadArchivedRecords -and $loadArchivedInProgress -eq $false ) {
+                    if ( $settings.loadArchivedRecords -and ( $loadArchivedInProgress -eq $false ) -and $objectType.loadArchived ) {
                         $loadArchivedInProgress = $true
                         $archived = "true"
                         $url = "$( $settings.base )$( $object )/$( $apiVersion )/$( $type )/$( $objectType )?limit=$( $limit )&archived=$( $archived )&properties=$( $props.name -join "," )$( $hapikey )"
@@ -376,6 +379,39 @@ Switch ( $extractMethod ) {
 
         }
 
+        # Load engagements from older v1 API 
+        If ( $settings.loadEngagements ) {
+
+            $offset = 0
+            $pagesize = $settings.pageLimitGet
+            $url = "$( $settings.base )engagements/v1/engagements/paged?limit=$( $pagesize )$( $hapikey )"
+            $obj = [System.Collections.ArrayList]@()
+            Do {
+                $params = [hashtable]@{
+                    "Uri" = "$( $url )&offset=$( $offset )"
+                    "Method" = "GET"
+                    "Verbose" = $true
+                }
+                $objRes = Invoke-RestMethod @params
+                $obj.AddRange( $objRes.results )
+                $offset += $objRes.offset
+            } while ( $objRes.hasMore )
+
+            Write-Log -message "Loaded $( $obj.count ) 'engagements' in summary"
+
+            # Add objects to a pscustom
+            $customFormat = @(
+                @{name="id";expression={ $_.engagement.id }}
+                @{name="properties";expression={ $_ }}
+                @{name="createdAt";expression={ ( Get-DateTimeFromUnixtime -unixtime $_.engagement.createdAt -inMilliseconds ).toString("yyyy-MM-ddThh:mm:ss.fffZ") }}
+                @{name="updatedAt";expression={ ( Get-DateTimeFromUnixtime -unixtime $_.engagement.lastUpdated -inMilliseconds ).toString("yyyy-MM-ddThh:mm:ss.fffZ") }}
+                @{name="archived";expression={ $false }}
+
+            )
+            $objects | Add-Member -MemberType NoteProperty -Name "engagements" -Value ( $obj | select $customFormat )           
+
+        }
+
     }
 
     "DELTA" {
@@ -388,10 +424,11 @@ Switch ( $extractMethod ) {
         $objectTypesToLoad | ForEach {
             
             $objectType = $_
+            $objectSettings = $settings.objectTypesToLoad.$objectType
 
             $limit = $settings.pageLimitGet
             $props = $properties.$objectType
-            $lastmodifiedProperty = $settings.objectTypesToLoad.$objectType.updatedField
+            $lastmodifiedProperty = $objectSettings.updatedField
 
             # Create body to ask for objects
             $body = [ordered]@{
@@ -458,14 +495,53 @@ Switch ( $extractMethod ) {
 
         }
 
+        # Load engagements from older v1 API 
+        If ( $settings.loadEngagements ) {
+
+            $offset = 0
+            $pagesize = $settings.pageLimitGet
+            $unixtime = $lastSession.lastTimestamp #- 604800000 # load the last 7 days for testing
+            $url = "$( $settings.base )engagements/v1/engagements/recent/modified?count=$( $pagesize )$( $hapikey )&since=$( $unixtime )"
+            $obj = [System.Collections.ArrayList]@()
+            Do {
+                $params = [hashtable]@{
+                    "Uri" = "$( $url )&offset=$( $offset )"
+                    "Method" = "GET"
+                    "Verbose" = $true
+                }
+                $objRes = Invoke-RestMethod @params
+                $obj.AddRange( $objRes.results )
+                $offset += $pagesize
+            } while ( $objRes.hasMore )
+
+            Write-Log -message "Loaded $( $obj.count ) 'engagements' in summary"
+
+            # Add objects to a pscustom
+            $customFormat = @(
+                @{name="id";expression={ $_.engagement.id }}
+                @{name="properties";expression={ $_ }}
+                @{name="createdAt";expression={ ( Get-DateTimeFromUnixtime -unixtime $_.engagement.createdAt -inMilliseconds ).toString("yyyy-MM-ddThh:mm:ss.fffZ") }}
+                @{name="updatedAt";expression={ ( Get-DateTimeFromUnixtime -unixtime $_.engagement.lastUpdated -inMilliseconds ).toString("yyyy-MM-ddThh:mm:ss.fffZ") }}
+                @{name="archived";expression={ $false }}
+
+            )
+            $objects | Add-Member -MemberType NoteProperty -Name "engagements" -Value ( $obj | select $customFormat )           
+
+        }
+
 
     }
 
 }
 
+
 #-----------------------------------------------
 # COUNT THE ITEMS TO SEE IF WE SHOULD PROCEED
 #-----------------------------------------------
+
+If ( $settings.loadEngagements ) {
+    $objectTypesToLoad += "engagements"
+}
 
 $itemsTotal = 0
 $objectTypesToLoad | ForEach {
@@ -475,6 +551,7 @@ $objectTypesToLoad | ForEach {
     $itemsTotal += $objects.$objectType.count
 
 }
+
 
 If ( $itemsTotal -gt 0 ) {
     Write-Log -message "Counted $( $itemsTotal ) items in total -> Proceed loading into the database"
@@ -639,6 +716,7 @@ $t = Measure-Command {
         # LOADING PROPERTIES
         #-----------------------------------------------
 
+        $sqliteTransaction = $connection.BeginTransaction()
         $properties.$objectType | ForEach {
 
             $property = $_
@@ -658,12 +736,14 @@ $t = Measure-Command {
             $insertedProperties += $command.ExecuteNonQuery()
 
         }
+        $sqliteTransaction.Commit()
 
 
         #-----------------------------------------------
         # LOADING ITEMS
         #-----------------------------------------------
 
+        $sqliteTransaction = $connection.BeginTransaction()
         $objects.$objectType | ForEach {
 
             $row = $_
@@ -684,6 +764,8 @@ $t = Measure-Command {
             $insertedRows += $command.ExecuteNonQuery()
 
         }
+        $sqliteTransaction.Commit()
+
 
     }
 

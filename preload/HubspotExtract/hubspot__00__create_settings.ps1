@@ -66,8 +66,16 @@ $loginSettings = [PSCustomObject]@{
 
 # typically something like contacts and companies
 $objectTypesToLoad = [hashtable]@{
-    "contacts" = [hashtable]@{}
-    "companies" = [hashtable]@{}
+    
+    "contacts" = [hashtable]@{
+        "interactiveConfiguration" = $true
+        "loadCustomAttributes" = $true
+    }
+    "companies" = [hashtable]@{
+        "interactiveConfiguration" = $true
+        "loadCustomAttributes" = $true
+    }
+    #"feedback_submissions" = [hashtable]@{} # still in beta - 20210713
 }
 
 
@@ -106,6 +114,7 @@ $settings = [PSCustomObject]@{
 
     # hubspot settings
     objectTypesToLoad = $objectTypesToLoad
+    loadEngagements = $true
 
     # local directories
     exportDir = "$( $scriptPath )\extract"
@@ -201,19 +210,27 @@ companies have "hs_lastmodifieddate"
 $objectTypes = $objectTypesToLoad.Keys
 
 $objectTypes | ForEach {
-
-    $objectType = $_
-    $object = "crm"
-    $apiVersion = "v3"
-    $archived = "false"
-    $type = "properties"
-    $url = "$( $settings.base )$( $object )/$( $apiVersion )/$( $type )/$( $objectType )?archived=$( $archived )$( $hapikey )"
-    $res = Invoke-RestMethod -Method Get -Uri $url
-
-    $settings.objectTypesToLoad.$objectType = [hashtable]@{ "updatedField" = ($res.results.name | Out-GridView -PassThru | select -first 1) }
     
-}
+    $objectTypeKey = $_
+    $objectType = $objectTypesToLoad.$objectTypeKey
+    
+    If ( $objectType.interactiveConfiguration ) {
 
+    "Please choose the update date property for $( $_ )"
+
+        $object = "crm"
+        $apiVersion = "v3"
+        $archived = "false"
+        $type = "properties"
+        $url = "$( $settings.base )$( $object )/$( $apiVersion )/$( $type )/$( $objectTypeKey )?archived=$( $archived )$( $hapikey )"
+        $res = Invoke-RestMethod -Method Get -Uri $url
+
+        $objectTypesToLoad.$objectTypeKey.Add("updatedField",($res.results.name | Out-GridView -PassThru | select -first 1))
+
+    }
+
+}
+$settings.objectTypesToLoad = $objectTypesToLoad
 
 
 ################################################
