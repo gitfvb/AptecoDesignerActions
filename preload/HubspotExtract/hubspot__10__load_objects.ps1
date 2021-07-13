@@ -394,7 +394,7 @@ Switch ( $extractMethod ) {
                 }
                 $objRes = Invoke-RestMethod @params
                 $obj.AddRange( $objRes.results )
-                $offset += $objRes.offset
+                $offset = $objRes.offset
             } while ( $objRes.hasMore )
 
             Write-Log -message "Loaded $( $obj.count ) 'engagements' in summary"
