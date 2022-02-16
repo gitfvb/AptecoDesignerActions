@@ -21,10 +21,7 @@ $debug = $true
 
 if ( $debug ) {
     $params = [hashtable]@{
-	    Password= "def"
-        scriptPath = "C:\Users\Florian\Documents\GitHub\AptecoDesignerActions\preload\emarsysExtract"
-	    abc= "def"
-	    Username= "abc"
+	    scriptPath= "C:\Users\Florian\Documents\GitHub\AptecoCustomChannels\agnitasEMM\API"
     }
 }
 
@@ -41,13 +38,14 @@ https://dev.emarsys.com/v2/first-steps/1-prerequisites
 
 #>
 
-
 ################################################
 #
 # SCRIPT ROOT
 #
 ################################################
 
+# if debug is on a local path by the person that is debugging will load
+# else it will use the param (input) path
 if ( $debug ) {
     # Load scriptpath
     if ($MyInvocation.MyCommand.CommandType -eq "ExternalScript") {
@@ -67,119 +65,125 @@ Set-Location -Path $scriptPath
 #
 ################################################
 
-# General settings
-$functionsSubfolder = "functions"
-$libSubfolder = "lib"
-$settingsFilename = "settings.json"
-$moduleName = "EMARSYSMAILINGS"
-$processId = [guid]::NewGuid()
-$timestamp = [datetime]::Now
+$script:moduleName = "EMARSYS-GET-MAILINGS"
 
-# Load settings
-$settings = Get-Content -Path "$( $scriptPath )\$( $settingsFilename )" -Encoding UTF8 -Raw | ConvertFrom-Json
+try {
 
-# Allow only newer security protocols
-# hints: https://www.frankysweb.de/powershell-es-konnte-kein-geschuetzter-ssltls-kanal-erstellt-werden/
-if ( $settings.changeTLS ) {
-    $AllProtocols = @(    
-        [System.Net.SecurityProtocolType]::Tls12
-    )
-    [System.Net.ServicePointManager]::SecurityProtocol = $AllProtocols
-}
+    # Load general settings
+    . ".\bin\general_settings.ps1"
 
-# more settings
-$logfile = $settings.logfile
-#$guid = ([guid]::NewGuid()).Guid # TODO [ ] use this guid for a specific identifier of this job in the logfiles
+    # Load settings
+    . ".\bin\load_settings.ps1"
 
-# append a suffix, if in debug mode
-if ( $debug ) {
-    $logfile = "$( $logfile ).debug"
-}
+    # Load network settings
+    . ".\bin\load_networksettings.ps1"
 
+    # Load functions
+    . ".\bin\load_functions.ps1"
 
-################################################
-#
-# FUNCTIONS
-#
-################################################
+    # Start logging
+    . ".\bin\startup_logging.ps1"
 
-# Load all PowerShell Code
-"Loading..."
-Get-ChildItem -Path ".\$( $functionsSubfolder )" -Recurse -Include @("*.ps1") | ForEach {
-    . $_.FullName
-    "... $( $_.FullName )"
-}
+    # Load preparation ($cred)
+    . ".\bin\preparation.ps1"
 
-# Load all exe files in subfolder
-$libExecutables = Get-ChildItem -Path ".\$( $libSubfolder )" -Recurse -Include @("*.exe") 
-$libExecutables | ForEach {
-    "... $( $_.FullName )"
+} catch {
+
+    Write-Log -message "Got exception during start phase" -severity ( [LogSeverity]::ERROR )
+    Write-Log -message "  Type: '$( $_.Exception.GetType().Name )'" -severity ( [LogSeverity]::ERROR )
+    Write-Log -message "  Message: '$( $_.Exception.Message )'" -severity ( [LogSeverity]::ERROR )
+    Write-Log -message "  Stacktrace: '$( $_.ScriptStackTrace )'" -severity ( [LogSeverity]::ERROR )
     
-}
-<#
-# Load dll files in subfolder
-$libExecutables = Get-ChildItem -Path ".\$( $libSubfolder )" -Recurse -Include @("*.dll") 
-$libExecutables | ForEach {
-    "Loading $( $_.FullName )"
-    [Reflection.Assembly]::LoadFile($_.FullName) 
-}
-#>
+    throw $_.exception  
 
+    exit 1
 
-################################################
-#
-# LOG INPUT PARAMETERS
-#
-################################################
-
-# Start the log
-Write-Log -message "----------------------------------------------------"
-Write-Log -message "$( $modulename )"
-Write-Log -message "Got a file with these arguments: $( [Environment]::GetCommandLineArgs() )"
-
-# Check if params object exists
-if (Get-Variable "params" -Scope Global -ErrorAction SilentlyContinue) {
-    $paramsExisting = $true
-} else {
-    $paramsExisting = $false
-}
-
-# Log the params, if existing
-if ( $paramsExisting ) {
-    $params.Keys | ForEach-Object {
-        $param = $_
-        Write-Log -message "$( $param ): $( $params[$param] )"
-    }
 }
 
 
 ################################################
 #
-# HANDLING EMARSYS
+# PROGRAM
 #
 ################################################
 
-#$settingsLoad = Invoke-RestMethod @params
+$messages = [System.Collections.ArrayList]@()
+try {
 
-$stringSecure = ConvertTo-SecureString -String ( Get-SecureToPlaintext $settings.login.secret ) -AsPlainText -Force
-$cred = [pscredential]::new( $settings.login.username, $stringSecure )
 
-# Read static attribute
-[Emarsys]::allowNewFieldCreation
+    ################################################
+    #
+    # TRY
+    #
+    ################################################
 
-# Create emarsys object
-$emarsys = [Emarsys]::new($cred,$settings.base)
 
-[uint64]$currentTimestamp = Get-Unixtime -inMilliseconds -timestamp $timestamp
+    #-----------------------------------------------
+    # GET MAILINGS
+    #-----------------------------------------------
+
+    $stringSecure = ConvertTo-SecureString -String ( Get-SecureToPlaintext $settings.login.secret ) -AsPlainText -Force
+    $cred = [pscredential]::new( $settings.login.username, $stringSecure )
+
+    # Read static attribute
+    [Emarsys]::allowNewFieldCreation
+
+    # Create emarsys object
+    $emarsys = [Emarsys]::new($cred,$settings.base)
+
+    [uint64]$currentTimestamp = Get-Unixtime -inMilliseconds -timestamp $timestamp
+
+
+} catch {
+
+    ################################################
+    #
+    # ERROR HANDLING
+    #
+    ################################################
+
+    Write-Log -message "Got exception during execution phase" -severity ( [LogSeverity]::ERROR )
+    Write-Log -message "  Type: '$( $_.Exception.GetType().Name )'" -severity ( [LogSeverity]::ERROR )
+    Write-Log -message "  Message: '$( $_.Exception.Message )'" -severity ( [LogSeverity]::ERROR )
+    Write-Log -message "  Stacktrace: '$( $_.ScriptStackTrace )'" -severity ( [LogSeverity]::ERROR )
+    
+    throw $_.exception
+
+} finally {
+
+    ################################################
+    #
+    # RETURN
+    #
+    ################################################
+
+    $messages
+
+}
+
+exit 0
+
+################################################
+#
+# DEBUG
+#
+################################################
 
 
 #-----------------------------------------------
-# SETTINGS
+# LOAD SETTINGS
 #-----------------------------------------------
 
 # Read settings
 $emarsys.getSettings()
 
+
+
+
+
+#-----------------------------------------------
+# DOWNLOAD RESPONSES
+#-----------------------------------------------
 
 $exp = $emarsys.downloadResponses(".")
 $exp.autoUpdate($true)
@@ -199,17 +203,12 @@ $exportTimestamp = $timestamp.ToString("yyyyMMdd_HHmmss")
 $exportFolder = "$( $settings.download.folder )\$( $exportTimestamp )_$( $processId.Guid )\"
 New-Item -Path $exportFolder -ItemType Directory
 
-
 #-----------------------------------------------
 # EXPORT WITH ALL FIELDS IN BACKGROUND
 #-----------------------------------------------
 
 $loadFolder = "$( $exportFolder )\1_load"
 New-Item -Path $loadFolder -ItemType Directory
-
-
-
-
 
 $exp = $emarsys.downloadResponses(".")
 exit 0
@@ -221,11 +220,40 @@ $emarsys.getExports().downloadResult()
 
 exit 0
 
+
+
+
+
+#-----------------------------------------------
+# LISTS
+#-----------------------------------------------
+
 $lists = $emarsys.getLists()
 $selectedlist = ( $lists | Select *,  @{name="count";expression={ $_.count() }} -exclude raw ) | Out-GridView -PassThru
 #$list = $lists | where { $selectedlist.id -contains $_.id }
 
-#$fields = $emarsys.getFields($false) | Out-GridView -PassThru | Select -first 20
+
+
+
+
+
+#-----------------------------------------------
+# FIELDS
+#-----------------------------------------------
+
+# With $true you are getting more details
+$fields = $emarsys.getFields($true) #| Out-GridView -PassThru | Select -first 20
+
+$fields | Export-Csv -Path ".\fields.csv" -Encoding Default -NoTypeInformation -Delimiter "`t"
+
+$fields | Select @{name="field_id";expression={ $_.id }}, @{name="fieldname";expression={$_.name}} -ExpandProperty choices | Export-Csv -Path ".\fields_choices.csv" -Encoding Default -NoTypeInformation -Delimiter "`t"
+
+
+
+#-----------------------------------------------
+# EXPORTS
+#-----------------------------------------------
+
 $exports = [System.Collections.ArrayList]@()
 $lists | where { $selectedlist.id -contains $_.id } | ForEach {
     $list = $_
