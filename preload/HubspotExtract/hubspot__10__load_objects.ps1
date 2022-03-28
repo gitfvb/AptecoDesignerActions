@@ -307,6 +307,7 @@ $currentTimestampDateTime = Get-DateTimeFromUnixtime -unixtime $currentTimestamp
 Write-Log -message "Current timestamp: $( $currentTimestamp )"
 
 
+
 ################################################
 #
 # LOAD OBJECTS
@@ -450,7 +451,6 @@ Switch ( $extractMethod ) {
                 after = 0
             }
 
-
             $object = "crm"
             $apiVersion = "v3"
             $type = "objects"
@@ -480,7 +480,6 @@ Switch ( $extractMethod ) {
                     #Write-Host $_ -fore green
                 }            
         
-    
                 Write-Log -message "Loaded $( $obj.count ) '$( $objectType )' in total"
                 
                 # prepare next batch -> with search the "paging" does not contain IDs, it contains only integers the index of the search result
@@ -529,6 +528,62 @@ Switch ( $extractMethod ) {
 
         }
 
+        # Load all active records to identify deleted ones
+        # TODO [ ] do this maybe once a day OR every n times OR with another extract method
+        $objectIDs = [System.Collections.ArrayList]@{}
+        $objectTypesToLoad | ForEach {
+            
+            $objectType = $_
+            $object = "crm"
+            $apiVersion = "v3"
+            $limit = $settings.pageLimitGet
+            $archived = "false"
+            $props = [array]@()
+            $type = "objects"
+            $url = "$( $settings.base )$( $object )/$( $apiVersion )/$( $type )/$( $objectType )?limit=$( $limit )&archived=$( $archived )&properties=$( $props.name -join "," )$( $hapikey )"
+            
+            $finish = $false
+            $obj = [System.Collections.ArrayList]@()
+            Do {
+        
+                # Get all objects in page
+                $objRes = Invoke-RestMethod -Method Get -Uri $url -Verbose
+        
+                # Add objects to array
+                $obj.AddRange( $objRes.results.id )
+    
+                Write-Log -message "Loaded $( $obj.count ) '$( $objectType )' IDs in total"
+                    
+                # Check if finished
+                if ( $objRes.paging ) {
+                    
+                    # Load next url
+                    $url = "$( $objRes.paging.next.link )$( $hapikey )"
+
+                } else {
+                 
+                    $finish = $true
+
+                }
+
+            } until ( $finish )
+
+            $objectIDs.AddRange($obj)
+
+        }
+
+        Write-Log -message "Loaded $( $objectIDs.count ) active IDs in summary"
+
+        # Add objects to a pscustom
+        $activeIDs = [System.Collections.ArrayList]@(
+            [PSCustomObject]@{
+                "id" = 0
+                "properties" = $objectIDs #| ConvertTo-Json -Compress
+                "createdAt" = $timestamp.toString("yyyy-MM-ddThh:mm:ss.fffZ")
+                "updatedAt" = $timestamp.toString("yyyy-MM-ddThh:mm:ss.fffZ")
+                "archived" = $false
+        })
+        $objects | Add-Member -MemberType NoteProperty -Name "active_ids" -Value ( $activeIDs )
 
     }
 
@@ -543,6 +598,8 @@ If ( $settings.loadEngagements ) {
     $objectTypesToLoad += "engagements"
 }
 
+$objectTypesToLoad += "active_ids"
+
 $itemsTotal = 0
 $objectTypesToLoad | ForEach {
 
@@ -551,7 +608,6 @@ $objectTypesToLoad | ForEach {
     $itemsTotal += $objects.$objectType.count
 
 }
-
 
 If ( $itemsTotal -gt 0 ) {
     Write-Log -message "Counted $( $itemsTotal ) items in total -> Proceed loading into the database"
@@ -729,7 +785,7 @@ $t = Measure-Command {
             [void]$command.Parameters.AddWithValue("@id", $property.name)
             [void]$command.Parameters.AddWithValue("@createdAt", $property.createdAt)
             [void]$command.Parameters.AddWithValue("@updatedAt", $property.updatedAt)
-            [void]$command.Parameters.AddWithValue("@property", ( $property | convertto-json -Compress -Depth 20 ))
+            [void]$command.Parameters.AddWithValue("@property", ( $property | convertto-json -Compress -Depth 99 ))
 
             [void]$command.Prepare()
 
