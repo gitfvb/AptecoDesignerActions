@@ -75,7 +75,16 @@ $objectTypesToLoad = [hashtable]@{
         "interactiveConfiguration" = $true
         "loadCustomAttributes" = $true
     }
+    <#
+    "engagements" = [hashtable]@{
+        "customUrl" = "https://api.hubapi.com/engagements/v1/engagements/recent/modified?count=100"
+        "loadCustomProperties" = $false
+        "interactiveConfiguration" = $false
+        "updatedField" = "since"
+        "loadArchived" = $false # Not supported yet in Hubspot API
+    } # still in dev - 20210713
     #"feedback_submissions" = [hashtable]@{} # still in beta - 20210713
+    #>
 }
 
 
