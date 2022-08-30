@@ -6,3 +6,4 @@
 *.debug
 *.json
 *.key
+*_archive*
