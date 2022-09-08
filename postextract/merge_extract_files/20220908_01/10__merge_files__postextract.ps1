@@ -19,6 +19,7 @@
 * Do not define any variables as "Reference", this can have an effect on the column ordner
   which needs to be exactly the same in all files (the script checks this!)
 
+
 !!!
 If you use incremental or delta extracts, make sure to implement a postload action which brings back the original file before appending the data
 !!!
@@ -76,12 +77,6 @@ Write-Host "Starting to join extract files"
 Write-Host "Current Path: '$( Get-Location )'"
 
 
-################################################
-#
-# SETTINGS
-#
-################################################
-
 #-----------------------------------------------
 # READ ENVIRONMENT VARIABLE BASE
 #-----------------------------------------------
@@ -102,18 +97,35 @@ If ( $base -eq $null ) {
 
 
 #-----------------------------------------------
-# READ SETTINGS FILE
+# DEFINE THE SETTINGS
 #-----------------------------------------------
+<#
+Write-Host "Creating settings"
 
-$logfile = ".\merge.log"
-$functionsSubfolder = ".\functions"
+$settings = [Hashtable]@{
+    "objects" = [Array]@(
 
-# Load all PowerShell Code
-"Loading..."
-Get-ChildItem -Path ".\$( $functionsSubfolder )" -Recurse -Include @("*.ps1") | ForEach {
-    . $_.FullName
-    "... $( $_.FullName )"
+
+        [PSCustomObject]@{
+            "inputFile" = "$( $base )\extract\People.txt"
+            "filesToAdd" = [Array]@(
+
+                [PSCustomObject]@{
+                    columnPrefix = "DE" # this will be removed, but it needed for designer not to complain about duplicate names
+                    path = "$( $base )\extract\PeopleDE.txt"
+                }
+
+            )
+            "addedFilesEncoding" = "utf8" #[System.Text.Encoding]::UTF8.CodePage
+            "removeHeadersFromAddedFiles" = $true
+            "outputEncoding" = "utf8" #[System.Text.Encoding]::UTF8.CodePage
+            "outputFile" = "$( $base )\extract\People.txt"
+        }
+
+
+    )
 }
+#>
 
 # $settings | ConvertTo-Json -Depth 99
 try {
@@ -144,6 +156,7 @@ If ( $settings.logAllEnvironmentVariables -eq $true) {
 #-----------------------------------------------
 
 
+
 $success = $false
 try {
 
@@ -152,13 +165,6 @@ try {
     # TRY
     #
     ################################################
-
-    #-----------------------------------------------
-    # CREATE TEMP FOLDER
-    #-----------------------------------------------
-
-    $temp = "$( [System.Environment]::GetEnvironmentVariable("TEMP") )\$( [guid]::NewGuid().toString() )\"
-    $tempCreation = New-Item -Path $temp -ItemType Directory
 
 
     #-----------------------------------------------
@@ -196,7 +202,6 @@ try {
         # Reading first 200 rows for comparison, it is 201 to include the header
         $fileHead = Get-Content -Path $inputFile -ReadCount 100 -TotalCount 201 -Encoding $item.addedFilesEncoding
         $csv =  $fileHead | ConvertFrom-Csv  -Delimiter "`t"
-        $headers = $csv[0].psobject.properties.name
 
         Write-Host "Checking first $( $csv.count ) lines for comparison of columns"
 
@@ -221,7 +226,7 @@ try {
                 $addHeaders += $_ -Replace "^$( $itemToAdd.columnPrefix )", "" # $_.TrimStart("DE")
             }
 
-            $fieldComparation = Compare-Object -ReferenceObject $headers -DifferenceObject $addHeaders -IncludeEqual #-SyncWindow 0 # SyncWindows checks the order of the columns
+            $fieldComparation = Compare-Object -ReferenceObject $csv[0].psobject.properties.name -DifferenceObject $addHeaders -IncludeEqual -SyncWindow 0
             $equalColumns = ( $fieldComparation | where { $_.SideIndicator -eq "==" } ).InputObject
             $columnsOnlySourceFile = ( $fieldComparation | where { $_.SideIndicator -eq "=>" } ).InputObject
             $columnsOnlyAddFile = ( $fieldComparation | where { $_.SideIndicator -eq "<=" } ).InputObject
@@ -235,12 +240,12 @@ try {
                 
                 If ( $columnsOnlySourceFile.Count -gt 0 ) {
                     $doOperation = $false
-                    Write-Host "Following fields are only in the file to add: $( $columnsOnlySourceFile -join ", " )"
+                    Write-Host "Following fields are only in the source file or wrong order: $( $columnsOnlySourceFile -join ", " )"
                 }
 
                 If ( $columnsOnlyAddFile.Count -gt 0 ) {
                     $doOperation = $false
-                    Write-Host "Following fields are only in the source file: '$( $columnsOnlyAddFile -join ", " )'"
+                    Write-Host "Following fields are only in the file to add or wrong order: '$( $columnsOnlyAddFile -join ", " )'"
                 }
 
                 If ( $doOperation -eq $true ) {
@@ -251,58 +256,34 @@ try {
                     Write-Host "Found $( Count-Rows -Path $itemToAdd.path ) rows in the input file (including headers)"
 
                     # Check if we should ignore the first header line
-                    <#
                     if ( $item.removeHeadersFromAddedFiles ) {
                         $removeFirstLine = $true
                     } else {
                         $removeFirstLine = $false
                     }
-                    #>
                     
-
-                    # Rewrite the file first
-                    Write-Host "Rewrite the files with columns in correct order and without header"
-                    $params = @{
-                        inputPath = $itemToAdd.path
-                        inputDelimiter = "`t"
-                        outputDelimiter = "`t"
-                        writeCount = -1
-                        batchSize = 150000
-                        chunkSize = 5000
-                        header = $true
-                        writeHeader = $false
-                        outputColumns = $headers | % { "$( $itemToAdd.columnPrefix )$( $_ )" }
-                        outputDoubleQuotes = $false
-                        outputFolder = $temp
-                        #additionalColumns = $additionalColumns
-
-                    }
-
-                    # Split the file and remember the ID
-                    $newID = Split-File @params
-                    Write-Host "Rewritten the file with id '$( $newID )'"
-                    
-                    # Read and append the file
+                    # Read and write the files
                     $i = 0
-                    $addItem = Get-Item -Path $itemToAdd.path
-                    Get-Content -Path "$( $temp )\$( $newID )\$( $addItem.Name )" -ReadCount 100 -Encoding $item.addedFilesEncoding | ForEach {
+                    Get-Content -Path $itemToAdd.path -ReadCount 100 -Encoding $item.addedFilesEncoding | ForEach {
                         $chunk = $_
+                        if ( $removeFirstLine -eq $true ) {
+                            Write-Host "Removing first line"
+                            $chunk = $chunk[1..( $chunk.Count -1 )]
+                            $removeFirstLine = $false
+                        } 
                         #Write-Host "Writing $( $chunk.count ) rows"
                         $chunk | Add-Content -Encoding $item.addedFilesEncoding -Path $tmpFile
                         $i += $chunk.Count
                     }
-                    
 
                     Write-Host "Added $( $i ) rows to '$( $tmpFile )'"
 
                 } else {
-
                     Write-Host "Didn't add this file"
                     If ( $settings.generateErrorOnNonSuccess -eq $true ) {
                         Write-Host "Creating an error on a failure! Change settings, if this is not your wish."
                         throw [System.IO.InvalidDataException] "Joining failed"
                     }
-
                 }
 
             }
@@ -335,23 +316,18 @@ try {
 
         # Delete original file, if exists
         If (( Test-Path -Path $item.outputFile ) -eq $true) {
+            Remove-Item -Path $item.outputFile -Force -Verbose
             Write-Host "Removed file '$( $item.outputFile )'"
-            Remove-Item -Path $item.outputFile -Force #-Verbose
         }
 
         # Rename temporary file to original one
+        Rename-Item -Path $tmpFile -NewName $item.outputFile -Verbose
         Write-Host "Renaming file '$( $tmpFile )' to '$( $item.outputFile )'"
-        Rename-Item -Path $tmpFile -NewName $item.outputFile #-Verbose
 
     } else {
 
     }
 
-    # Remove the temporary folder now
-    Write-Host "Removing temporary folder at $( $temp )"
-    Remove-Item -Path $temp -Recurse
-
-    # Logging
     Write-Host "Done!"
     Write-Host "-----------------------------------------------"
 
