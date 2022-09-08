@@ -13,10 +13,12 @@
 * In Designer
   * Add a prefix to the columns for the files/extracts to join and put it in the columnPrefix setting
   * This prefix will be removed and then the columns will be checked if they are the same
-  * Add the DataSources to your "Table Relationships" in Designer, but do not connect them
+  * Add the DataSources to your "Table Relationships" in Designer, but do not connect them, add the checkbox for "Include in Build"
   * Do not forget to add the Variables to a hidden folder in "Folder Structure" in Designer
+  * Recreate composite columns, if you have copied a data source
 * Do not define any variables as "Reference", this can have an effect on the column ordner
   which needs to be exactly the same in all files (the script checks this!)
+
 
 !!!
 If you use incremental or delta extracts, make sure to implement a postload action which brings back the original file before appending the data
