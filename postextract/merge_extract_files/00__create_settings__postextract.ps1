@@ -88,6 +88,8 @@ $settings = [Hashtable]@{
     )
     "logAllEnvironmentVariables" = $false
     "generateErrorOnNonSuccess" = $true
+    "backupExtension" = ".bck"
+    "temporaryExtension" = ".tmp"
 }
 
 $settings | ConvertTo-Json -Depth 99 | Set-Content -Path ".\settings.json" -Encoding utf8
