@@ -76,9 +76,9 @@ $settings = [Hashtable]@{
                 }
 
             )
-            "addedFilesEncoding" = "utf8" #[System.Text.Encoding]::UTF8.CodePage
+            "addedFilesEncoding" = "utf8NoBOM"
             "removeHeadersFromAddedFiles" = $true
-            "outputEncoding" = "utf8" #[System.Text.Encoding]::UTF8.CodePage
+            "outputEncoding" = "utf8NoBOM"
             "outputFile" = "$( $base )\extract\People.txt"
             "incremental" = $false      # Please check if this is an incremental file, because if those we need to backup this first
             "delta" = $false            # Please check if this is an delta file, because if those we need to backup this first
